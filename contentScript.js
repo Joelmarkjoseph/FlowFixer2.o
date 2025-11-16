@@ -1272,8 +1272,6 @@
       
       // STEP 2: Determine base URL and credentials
       let serviceEndpointsBaseUrl;
-      let apiUsername = username;
-      let apiPassword = password;
       
       if (isNEO) {
         // NEO: Use current host
@@ -1281,7 +1279,7 @@
         console.log('NEO environment detected, using current host:', serviceEndpointsBaseUrl);
       } else {
         // Cloud Foundry: Get API URL from storage
-        const savedData = await safeStorageGet(['resenderApiUrl', 'resenderClientId', 'resenderClientSecret']);
+        const savedData = await safeStorageGet(['resenderApiUrl']);
         
         const apiUrl = savedData.resenderApiUrl;
         if (!apiUrl) {
@@ -1290,22 +1288,16 @@
         
         serviceEndpointsBaseUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash if present
         console.log('Cloud Foundry environment detected, using API URL:', serviceEndpointsBaseUrl);
-        
-        // Use Client ID/Secret for API calls
-        if (savedData.resenderClientId && savedData.resenderClientSecret) {
-          apiUsername = savedData.resenderClientId;
-          apiPassword = savedData.resenderClientSecret;
-          console.log('Using Client ID/Secret for API calls');
-        }
       }
       
       // STEP 3: Discover iFlow endpoint automatically using ServiceEndpoints API
       const serviceEndpointsUrl = serviceEndpointsBaseUrl + `/api/v1/ServiceEndpoints?$select=EntryPoints/Name,EntryPoints/Url&$expand=EntryPoints&$filter=Name eq '${iflowSymbolicName.trim()}'`;
       
       console.log('Step 1: Fetching ServiceEndpoints from:', serviceEndpointsUrl);
+      console.log('Using credentials: username/password (NOT Client ID/Secret)');
       
-      // Call ServiceEndpoints API - use httpWithAuth to handle cross-origin (CF) and same-origin (NEO)
-      const serviceEndpointsXml = await httpWithAuth('GET', serviceEndpointsUrl, apiUsername, apiPassword, null, 'application/xml');
+      // Call ServiceEndpoints API - ALWAYS use username/password (NOT Client ID/Secret)
+      const serviceEndpointsXml = await httpWithAuth('GET', serviceEndpointsUrl, username, password, null, 'application/xml');
       console.log('ServiceEndpoints response length:', serviceEndpointsXml ? serviceEndpointsXml.length : 0);
       
       // Step 2: Parse XML to extract the actual endpoint URL from <d:Url>
@@ -1358,11 +1350,27 @@
           console.log(`Resending message ${messageGuid} to ${endpoint}`);
           console.log(`Payload length: ${savedMsg.payload.length} bytes`);
           
+          // Determine credentials for iFlow POST call
+          let postUsername = username;
+          let postPassword = password;
+          
+          if (!isNEO) {
+            // For Cloud Foundry, use Client ID/Secret for iFlow calls if available
+            const savedData = await safeStorageGet(['resenderClientId', 'resenderClientSecret']);
+            if (savedData.resenderClientId && savedData.resenderClientSecret) {
+              postUsername = savedData.resenderClientId;
+              postPassword = savedData.resenderClientSecret;
+              console.log('Using Client ID/Secret for iFlow POST');
+            } else {
+              console.log('Using username/password for iFlow POST');
+            }
+          }
+          
           // Send HTTP POST request to the discovered endpoint
           // Use Basic Authentication (ClientID/ClientSecret or Username/Password)
           // Set Content-Type: application/xml
           // POST body is the original payload as-is
-          await httpWithAuth('POST', endpoint, apiUsername, apiPassword, savedMsg.payload, 'application/xml');
+          await httpWithAuth('POST', endpoint, postUsername, postPassword, savedMsg.payload, 'application/xml');
           
           console.log(`✓ Successfully resent message ${messageGuid}`);
           results.push({

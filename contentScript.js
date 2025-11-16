@@ -1258,11 +1258,15 @@
       // STEP 1: Load stored payloads from local storage
       console.log('Loading payloads from storage...');
       const allPayloads = await getAllSavedPayloads();
+      console.log('All saved iFlow names in storage:', Object.keys(allPayloads));
+      console.log('Looking for iFlow name:', iflowSymbolicName);
+      
       const savedPayloads = allPayloads[iflowSymbolicName] || [];
       
       console.log(`Found ${savedPayloads.length} saved payloads for iFlow: ${iflowSymbolicName}`);
       
       if (savedPayloads.length === 0) {
+        console.error('No payloads found! Available iFlows:', Object.keys(allPayloads));
         throw new Error('No saved payloads found. Please fetch payloads first.');
       }
       

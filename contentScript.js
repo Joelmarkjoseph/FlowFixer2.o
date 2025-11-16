@@ -1996,13 +1996,47 @@
     root.querySelector('#cpi-lite-resender')?.addEventListener('click', async ()=>{
       // Show dialog and fetch logs, then show iFlow overview
       showAuthDialogForResender(async (url, username, password, apiUrl)=>{
-        status.textContent = 'Fetching failed messages (last 15 mins)...';
         try{
-          const data = await fetchMessageProcessingLogs(username, password, apiUrl);
-          status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
+          // Check if we have cached data less than 15 minutes old
+          const cachedData = await safeStorageGet(['resenderCachedData', 'resenderCacheTimestamp']);
+          const now = Date.now();
+          const cacheAge = cachedData.resenderCacheTimestamp ? (now - cachedData.resenderCacheTimestamp) : Infinity;
+          const fifteenMinutes = 15 * 60 * 1000;
           
-          // Show iFlow overview screen
-          showIflowOverview(data, root);
+          let data;
+          
+          if (cacheAge < fifteenMinutes && cachedData.resenderCachedData) {
+            // Use cached data
+            const minutesAgo = Math.floor(cacheAge / 60000);
+            status.textContent = `Using cached data from ${minutesAgo} minute(s) ago...`;
+            console.log(`Using cached data (${minutesAgo} minutes old)`);
+            data = cachedData.resenderCachedData;
+            
+            // Show immediately
+            setTimeout(() => {
+              status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages (cached)`;
+              showIflowOverview(data, root);
+            }, 500);
+          } else {
+            // Fetch fresh data
+            status.textContent = 'Fetching failed messages (last 15 mins)...';
+            console.log('Cache expired or not found, fetching fresh data...');
+            data = await fetchMessageProcessingLogs(username, password, apiUrl);
+            
+            // Save to cache with timestamp
+            await new Promise((resolve) => {
+              chrome.storage.local.set({ 
+                resenderCachedData: data,
+                resenderCacheTimestamp: Date.now()
+              }, resolve);
+            });
+            console.log('✓ Data cached with timestamp');
+            
+            status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
+            
+            // Show iFlow overview screen
+            showIflowOverview(data, root);
+          }
         }catch(e){
           status.textContent = String(e && e.message || e);
           alert('Failed to fetch logs: ' + String(e && e.message || e));
@@ -2165,13 +2199,47 @@
     root.querySelector('#cpi-lite-resender')?.addEventListener('click', async ()=>{
       // Show dialog and fetch logs, then show iFlow overview
       showAuthDialogForResender(async (url, username, password, apiUrl)=>{
-        status.textContent = 'Fetching failed messages (last 15 mins)...';
         try{
-          const data = await fetchMessageProcessingLogs(username, password, apiUrl);
-          status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
+          // Check if we have cached data less than 15 minutes old
+          const cachedData = await safeStorageGet(['resenderCachedData', 'resenderCacheTimestamp']);
+          const now = Date.now();
+          const cacheAge = cachedData.resenderCacheTimestamp ? (now - cachedData.resenderCacheTimestamp) : Infinity;
+          const fifteenMinutes = 15 * 60 * 1000;
           
-          // Show iFlow overview screen
-          showIflowOverview(data, root);
+          let data;
+          
+          if (cacheAge < fifteenMinutes && cachedData.resenderCachedData) {
+            // Use cached data
+            const minutesAgo = Math.floor(cacheAge / 60000);
+            status.textContent = `Using cached data from ${minutesAgo} minute(s) ago...`;
+            console.log(`Using cached data (${minutesAgo} minutes old)`);
+            data = cachedData.resenderCachedData;
+            
+            // Show immediately
+            setTimeout(() => {
+              status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages (cached)`;
+              showIflowOverview(data, root);
+            }, 500);
+          } else {
+            // Fetch fresh data
+            status.textContent = 'Fetching failed messages (last 15 mins)...';
+            console.log('Cache expired or not found, fetching fresh data...');
+            data = await fetchMessageProcessingLogs(username, password, apiUrl);
+            
+            // Save to cache with timestamp
+            await new Promise((resolve) => {
+              chrome.storage.local.set({ 
+                resenderCachedData: data,
+                resenderCacheTimestamp: Date.now()
+              }, resolve);
+            });
+            console.log('✓ Data cached with timestamp');
+            
+            status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
+            
+            // Show iFlow overview screen
+            showIflowOverview(data, root);
+          }
         }catch(e){
           status.textContent = String(e && e.message || e);
           alert('Failed to fetch logs: ' + String(e && e.message || e));

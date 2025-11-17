@@ -12,11 +12,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function handleCrossOriginRequest(request, sendResponse) {
   try {
-    const { method, url, username, password, body, accept } = request;
+    const { method, url, username, password, body, accept, customHeaders } = request;
     
     console.log('Background script making cross-origin request to:', url);
     console.log('Username received:', username ? 'Yes (' + username.substring(0, 3) + '***)' : 'No');
     console.log('Password received:', password ? 'Yes (length: ' + password.length + ')' : 'No');
+    console.log('Custom headers received:', customHeaders);
     
     if (!username || !password) {
       throw new Error('Username and password are required for authentication');
@@ -37,6 +38,14 @@ async function handleCrossOriginRequest(request, sendResponse) {
     } else if (accept) {
       // For GET requests, use accept parameter as Accept header
       headers['Accept'] = accept;
+    }
+    
+    // Add custom headers if provided
+    if (customHeaders && typeof customHeaders === 'object') {
+      Object.keys(customHeaders).forEach(key => {
+        headers[key] = customHeaders[key];
+        console.log('Adding custom header:', key, '=', customHeaders[key]);
+      });
     }
     
     const response = await fetch(url, {

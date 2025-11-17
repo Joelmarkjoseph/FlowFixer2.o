@@ -21,7 +21,7 @@
     return location.protocol + '//' + location.host;
   }
 
-  function httpWithAuth(method, url, username, password, body, accept){
+  function httpWithAuth(method, url, username, password, body, accept, customHeaders){
     return new Promise((resolve, reject)=>{
       // Check if this is a cross-origin request
       const finalUrl = url.startsWith('http') ? url : absolutePath(url);
@@ -32,7 +32,8 @@
         finalUrl,
         currentHost: window.location.host,
         isCrossOrigin,
-        includes: finalUrl.includes(window.location.host)
+        includes: finalUrl.includes(window.location.host),
+        customHeaders: customHeaders
       });
       
       if (isCrossOrigin) {
@@ -52,7 +53,8 @@
           username: username,
           password: password,
           body: body,
-          accept: accept
+          accept: accept,
+          customHeaders: customHeaders
         }, (response) => {
           if (chrome.runtime.lastError) {
             const errorMsg = chrome.runtime.lastError.message;
@@ -91,6 +93,14 @@
         if (username && password){
           const credentials = btoa(username + ':' + password);
           xhr.setRequestHeader('Authorization', 'Basic ' + credentials);
+        }
+        
+        // Set custom headers if provided
+        if (customHeaders && typeof customHeaders === 'object') {
+          Object.keys(customHeaders).forEach(key => {
+            xhr.setRequestHeader(key, customHeaders[key]);
+            console.log('Setting custom header:', key, '=', customHeaders[key]);
+          });
         }
         
         xhr.onload = ()=>{
@@ -664,10 +674,27 @@
       
       // Parse the response
       const json = JSON.parse(response);
-      const logs = json.value || json.d?.results || [];
+      let logs = json.value || json.d?.results || [];
       
-      console.log('=== MESSAGE PROCESSING LOGS ===');
+      console.log('=== MESSAGE PROCESSING LOGS (Before Filtering) ===');
       console.log('Total logs fetched:', logs.length);
+      
+      // Filter out FlowFixer resent messages
+      // Check if the log has a custom property indicating it was resent by FlowFixer
+      logs = logs.filter(log => {
+        // Check various possible property names for the custom header
+        const isFlowFixerResend = log.FlowFixerResend === 'true' || 
+                                   log['X-FlowFixer-Resend'] === 'true' ||
+                                   log.CustomHeaderProperties?.includes('X-FlowFixer-Resend');
+        
+        if (isFlowFixerResend) {
+          console.log(`Filtering out FlowFixer resent message: ${log.MessageGuid}`);
+          return false; // Exclude this message
+        }
+        return true; // Include this message
+      });
+      
+      console.log('Total logs after filtering:', logs.length);
       console.log('Logs:', logs);
       console.table(logs);
       console.log('=== END MESSAGE PROCESSING LOGS ===');
@@ -1461,9 +1488,12 @@
           // Use Basic Authentication (ClientID/ClientSecret or Username/Password)
           // Set Content-Type: application/xml
           // POST body is the original payload as-is
-          await httpWithAuth('POST', endpoint, postUsername, postPassword, savedMsg.payload, 'application/xml');
+          // Add custom header to mark this as a FlowFixer resend
+          await httpWithAuth('POST', endpoint, postUsername, postPassword, savedMsg.payload, 'application/xml', {
+            'X-FlowFixer-Resend': 'true'
+          });
           
-          console.log(`✓ Successfully resent message ${messageGuid}`);
+          console.log(`✓ Successfully resent message ${messageGuid} with X-FlowFixer-Resend header`);
           results.push({
             messageGuid: messageGuid,
             success: true
@@ -1901,8 +1931,10 @@
         }
         
         try {
-          // Resend the message
-          await httpWithAuth('POST', endpoint, apiUsername, apiPassword, savedMsg.payload, 'application/xml');
+          // Resend the message with FlowFixer header
+          await httpWithAuth('POST', endpoint, apiUsername, apiPassword, savedMsg.payload, 'application/xml', {
+            'X-FlowFixer-Resend': 'true'
+          });
           
           results.push({
             messageGuid: messageId,

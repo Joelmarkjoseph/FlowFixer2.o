@@ -656,16 +656,21 @@
       
       console.log('Final Base URL:', baseUrl);
       
-      // Calculate time 15 minutes ago
-      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
-      const dateTimeStr = fifteenMinsAgo.toISOString().replace(/\.\d{3}Z$/, '.000');
+      // Calculate start of today (00:00:00)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dateTimeStr = today.toISOString().replace(/\.\d{3}Z$/, '.000');
       
-      // Build the MessageProcessingLogs URL
+      console.log('Fetching failed messages from today (00:00) to now');
+      console.log('Start time:', dateTimeStr);
+      
+      // Build the MessageProcessingLogs URL with pagination (top 30)
       const select = '$select=MessageGuid,CorrelationId,ApplicationMessageId,PredecessorMessageGuid,ApplicationMessageType,LogStart,LogEnd,Sender,Receiver,IntegrationFlowName,Status,AlternateWebLink,LogLevel,CustomStatus,ArchivingStatus,ArchivingSenderChannelMessages,ArchivingReceiverChannelMessages,ArchivingLogAttachments,ArchivingPersistedMessages,TransactionId,PreviousComponentName,LocalComponentName,OriginComponentName,IntegrationArtifact';
       const filter = `$filter=Status eq 'FAILED' and LogStart ge datetime'${dateTimeStr}'`;
-      const orderby = '$orderby=LogStart';
+      const orderby = '$orderby=LogStart desc';
+      const top = '$top=15'; // Fetch only 15 most recent messages
       
-      const url = `${baseUrl}/api/v1/MessageProcessingLogs?${select}&${filter}&${orderby}&$format=json`;
+      const url = `${baseUrl}/api/v1/MessageProcessingLogs?${select}&${filter}&${orderby}&${top}&$format=json`;
       
       console.log('Fetching MessageProcessingLogs from:', url);
       
@@ -842,10 +847,140 @@
         console.error('✗ Failed to save payloads to storage:', storageError);
       }
       
-      return { baseUrl, isNEO, iflowSummary: Object.values(iflowSummary), allMessages: messagesWithPayloads, username, password };
+      // Check if there might be more messages (if we got exactly 15, there might be more)
+      const hasMore = logs.length === 15;
+      
+      return { 
+        baseUrl, 
+        isNEO, 
+        iflowSummary: Object.values(iflowSummary), 
+        allMessages: messagesWithPayloads, 
+        username, 
+        password,
+        hasMore: hasMore,
+        currentSkip: 0,
+        dateTimeStr: dateTimeStr
+      };
       
     } catch (error) {
       console.error('Error fetching MessageProcessingLogs:', error);
+      throw error;
+    }
+  }
+
+  async function loadMoreMessages(baseUrl, username, password, dateTimeStr, currentSkip) {
+    try {
+      const skip = currentSkip + 15;
+      console.log(`Loading more messages, skip: ${skip}`);
+      
+      // Build URL with skip parameter
+      const select = '$select=MessageGuid,CorrelationId,ApplicationMessageId,PredecessorMessageGuid,ApplicationMessageType,LogStart,LogEnd,Sender,Receiver,IntegrationFlowName,Status,AlternateWebLink,LogLevel,CustomStatus,ArchivingStatus,ArchivingSenderChannelMessages,ArchivingReceiverChannelMessages,ArchivingLogAttachments,ArchivingPersistedMessages,TransactionId,PreviousComponentName,LocalComponentName,OriginComponentName,IntegrationArtifact';
+      const filter = `$filter=Status eq 'FAILED' and LogStart ge datetime'${dateTimeStr}'`;
+      const orderby = '$orderby=LogStart desc';
+      const top = '$top=15';
+      const skipParam = `$skip=${skip}`;
+      
+      const url = `${baseUrl}/api/v1/MessageProcessingLogs?${select}&${filter}&${orderby}&${top}&${skipParam}&$format=json`;
+      
+      console.log('Fetching more messages from:', url);
+      
+      // Make the request
+      const response = await httpWithAuth('GET', url, username, password, null, 'application/json');
+      
+      // Parse the response
+      const json = JSON.parse(response);
+      let logs = json.value || json.d?.results || [];
+      
+      console.log(`Fetched ${logs.length} more messages`);
+      
+      // Filter out FlowFixer resent messages
+      logs = logs.filter(log => {
+        const isFlowFixerResend = log.FlowFixerResend === 'true' || 
+                                   log['X-FlowFixer-Resend'] === 'true' ||
+                                   log.CustomHeaderProperties?.includes('X-FlowFixer-Resend');
+        
+        if (isFlowFixerResend) {
+          console.log(`Filtering out FlowFixer resent message: ${log.MessageGuid}`);
+          return false;
+        }
+        return true;
+      });
+      
+      console.log(`After filtering: ${logs.length} messages`);
+      
+      // Fetch attachments and payloads for new messages
+      const messagesWithPayloads = [];
+      const isNEO = baseUrl.includes('/itspaces/');
+      
+      for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        const messageGuid = log.MessageGuid;
+        
+        console.log(`[${i + 1}/${logs.length}] Processing message: ${messageGuid}`);
+        
+        const messageData = {
+          ...log,
+          attachments: [],
+          payload: null
+        };
+        
+        try {
+          const attachmentsUrl = `${baseUrl}/api/v1/MessageProcessingLogs('${messageGuid}')/Attachments?$format=json`;
+          const attachmentsResponse = await httpWithAuth('GET', attachmentsUrl, username, password, null, 'application/json');
+          const attachmentsJson = JSON.parse(attachmentsResponse);
+          const attachments = attachmentsJson.value || attachmentsJson.d?.results || [];
+          
+          if (attachments.length > 0) {
+            for (let j = 0; j < attachments.length; j++) {
+              const attachment = attachments[j];
+              const attachmentId = attachment.Id || attachment.ID;
+              const attachmentName = attachment.Name || attachment.name || 'unknown';
+              
+              try {
+                let payloadUrl;
+                if (isNEO) {
+                  payloadUrl = `${baseUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
+                } else {
+                  const integrationsuiteUrl = baseUrl.replace(/\.it-cpi[^.]*\./, '.integrationsuite-trial.');
+                  payloadUrl = `${integrationsuiteUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
+                }
+                
+                const payload = await httpWithAuth('GET', payloadUrl, username, password, null, 'application/octet-stream');
+                
+                if (j === 0) {
+                  messageData.payload = payload;
+                }
+                
+                messageData.attachments.push({
+                  id: attachmentId,
+                  name: attachmentName,
+                  payload: payload
+                });
+                
+              } catch (payloadError) {
+                console.error(`Failed to fetch payload:`, payloadError.message);
+              }
+            }
+          }
+          
+        } catch (attachmentError) {
+          console.error(`Failed to fetch attachments:`, attachmentError.message);
+        }
+        
+        messagesWithPayloads.push(messageData);
+      }
+      
+      // Check if there are more messages
+      const hasMore = logs.length === 15;
+      
+      return {
+        messages: messagesWithPayloads,
+        hasMore: hasMore,
+        newSkip: skip
+      };
+      
+    } catch (error) {
+      console.error('Error loading more messages:', error);
       throw error;
     }
   }
@@ -1079,7 +1214,7 @@
     
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = 'FlowFixer - Failed Messages Overview (Last 15 mins)';
+    title.textContent = 'FlowFixer - Failed Messages Overview (Today)';
     
     leftSection.appendChild(back);
     leftSection.appendChild(title);
@@ -1173,6 +1308,109 @@
     
     page.appendChild(header);
     page.appendChild(table);
+    
+    // Add Load More button if there are more messages
+    if (data.hasMore) {
+      const loadMoreContainer = document.createElement('div');
+      loadMoreContainer.style.cssText = 'text-align:center; padding:20px;';
+      
+      const loadMoreBtn = document.createElement('button');
+      loadMoreBtn.className = 'cpi-lite-btn';
+      loadMoreBtn.textContent = '⬇️ Load More Messages (15)';
+      loadMoreBtn.style.fontSize = '14px';
+      loadMoreBtn.style.padding = '10px 20px';
+      loadMoreBtn.onclick = async () => {
+        try {
+          loadMoreBtn.disabled = true;
+          loadMoreBtn.textContent = '⏳ Loading...';
+          
+          // Load more messages
+          const moreData = await loadMoreMessages(
+            data.baseUrl,
+            data.username,
+            data.password,
+            data.dateTimeStr,
+            data.currentSkip
+          );
+          
+          // Update data object
+          data.currentSkip = moreData.newSkip;
+          data.hasMore = moreData.hasMore;
+          
+          // Add new messages to iflowSummary
+          moreData.messages.forEach(msg => {
+            const iflowName = msg.IntegrationFlowName || 'Unknown';
+            let iflow = data.iflowSummary.find(i => i.name === iflowName);
+            
+            if (!iflow) {
+              iflow = {
+                name: iflowName,
+                failedCount: 0,
+                messages: []
+              };
+              data.iflowSummary.push(iflow);
+            }
+            
+            iflow.failedCount++;
+            iflow.messages.push(msg);
+          });
+          
+          // Save new payloads to storage
+          const allPayloads = await getAllSavedPayloads();
+          moreData.messages.forEach(msg => {
+            const iflowName = msg.IntegrationFlowName || 'Unknown';
+            if (!allPayloads[iflowName]) {
+              allPayloads[iflowName] = [];
+            }
+            
+            allPayloads[iflowName].push({
+              messageGuid: msg.MessageGuid,
+              integrationFlowName: msg.IntegrationFlowName,
+              status: msg.Status,
+              errorText: msg.CustomStatus || '',
+              errorDetails: '',
+              logStart: msg.LogStart,
+              payload: msg.payload,
+              attachments: msg.attachments.map(att => ({
+                id: att.id,
+                name: att.name,
+                contentType: 'application/xml'
+              }))
+            });
+          });
+          
+          await new Promise((resolve, reject) => {
+            chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+              } else {
+                resolve();
+              }
+            });
+          });
+          
+          // Update cache
+          await new Promise((resolve) => {
+            chrome.storage.local.set({ 
+              resenderCachedData: data,
+              resenderCacheTimestamp: Date.now()
+            }, resolve);
+          });
+          
+          // Refresh the display
+          showIflowOverview(data, container);
+          
+        } catch (error) {
+          alert('Failed to load more messages: ' + (error.message || error));
+          loadMoreBtn.disabled = false;
+          loadMoreBtn.textContent = '⬇️ Load More Messages (15)';
+        }
+      };
+      
+      loadMoreContainer.appendChild(loadMoreBtn);
+      page.appendChild(loadMoreContainer);
+    }
+    
     container.appendChild(page);
   }
 
@@ -2192,7 +2430,7 @@
             }, 500);
           } else {
             // Fetch fresh data
-            status.textContent = 'Fetching failed messages (last 15 mins)...';
+            status.textContent = 'Fetching failed messages (today)...';
             console.log('Cache expired or not found, fetching fresh data...');
             data = await fetchMessageProcessingLogs(username, password, apiUrl);
             
@@ -2395,7 +2633,7 @@
             }, 500);
           } else {
             // Fetch fresh data
-            status.textContent = 'Fetching failed messages (last 15 mins)...';
+            status.textContent = 'Fetching failed messages (today)...';
             console.log('Cache expired or not found, fetching fresh data...');
             data = await fetchMessageProcessingLogs(username, password, apiUrl);
             

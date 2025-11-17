@@ -1,4 +1,4 @@
-/* CPI Helper Lite content script */
+/* FlowFixer content script */
 (function(){
   const state = {
     urlExtension: "",
@@ -850,8 +850,8 @@
   async function updateResenderButtonText(){
     const buttons = document.querySelectorAll('#cpi-lite-resender');
     buttons.forEach(button => {
-      button.textContent = 'Resender Interface';
-      button.title = 'Click to load resender messages (auto-discovery)';
+      button.textContent = 'Resender';
+      button.title = 'Click to resend failed messages';
     });
   }
 
@@ -1036,15 +1036,75 @@
     // Header
     const header = document.createElement('div');
     header.className = 'cpi-lite-header';
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    
+    const leftSection = document.createElement('div');
+    leftSection.style.display = 'flex';
+    leftSection.style.alignItems = 'center';
+    leftSection.style.gap = '12px';
+    
     const back = document.createElement('button');
     back.className = 'cpi-lite-back';
     back.textContent = '← Back';
     back.onclick = () => { location.reload(); };
+    
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = 'Failed Messages - iFlow Overview (Last 15 mins)';
-    header.appendChild(back);
-    header.appendChild(title);
+    title.textContent = 'FlowFixer - Failed Messages Overview (Last 15 mins)';
+    
+    leftSection.appendChild(back);
+    leftSection.appendChild(title);
+    
+    // Manual fetch button
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'cpi-lite-btn warning';
+    refreshBtn.style.fontSize = '13px';
+    refreshBtn.style.padding = '6px 12px';
+    refreshBtn.textContent = '🔄 Manual Message Fetch';
+    refreshBtn.title = 'Force refresh messages from server';
+    refreshBtn.onclick = async () => {
+      try {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '⏳ Fetching...';
+        
+        // Get saved credentials
+        const savedData = await safeStorageGet(['resenderUsername', 'resenderPassword', 'resenderApiUrl']);
+        const username = savedData.resenderUsername;
+        const password = savedData.resenderPassword;
+        const apiUrl = savedData.resenderApiUrl;
+        
+        if (!username || !password) {
+          alert('No saved credentials found. Please reload and enter credentials.');
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '🔄 Manual Message Fetch';
+          return;
+        }
+        
+        // Fetch fresh data
+        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl);
+        
+        // Save to cache with timestamp
+        await new Promise((resolve) => {
+          chrome.storage.local.set({ 
+            resenderCachedData: freshData,
+            resenderCacheTimestamp: Date.now()
+          }, resolve);
+        });
+        
+        // Refresh the display
+        showIflowOverview(freshData, container);
+        
+      } catch (error) {
+        alert('Failed to fetch messages: ' + (error.message || error));
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄 Manual Message Fetch';
+      }
+    };
+    
+    header.appendChild(leftSection);
+    header.appendChild(refreshBtn);
     
     // Table
     const table = document.createElement('table');
@@ -1065,7 +1125,7 @@
       const tr = document.createElement('tr');
       
       const tdName = document.createElement('td');
-      tdName.textContent = iflow.name;
+      tdName.textContent = `${iflow.name} (${iflow.failedCount})`;
       
       const tdFailed = document.createElement('td');
       tdFailed.className = 'cpi-lite-count cpi-lite-fail';
@@ -1073,9 +1133,9 @@
       failLink.href = '#';
       failLink.className = 'cpi-lite-link';
       failLink.textContent = iflow.failedCount.toString();
-      failLink.onclick = (e) => {
+      failLink.onclick = async (e) => {
         e.preventDefault();
-        showFailedMessages(iflow, data, container);
+        await showFailedMessages(iflow, data, container);
       };
       tdFailed.appendChild(failLink);
       
@@ -1089,8 +1149,17 @@
     container.appendChild(page);
   }
 
-  function showFailedMessages(iflow, data, container) {
+  async function showFailedMessages(iflow, data, container) {
     ensureStyles();
+    
+    // Filter out successfully resent messages
+    const resentData = await safeStorageGet(['resentMessages']);
+    const resentMessages = resentData.resentMessages || [];
+    
+    // Filter messages to exclude successfully resent ones
+    const messagesToShow = iflow.messages.filter(msg => !resentMessages.includes(msg.MessageGuid));
+    
+    console.log(`Showing ${messagesToShow.length} messages (${iflow.messages.length - messagesToShow.length} successfully resent messages hidden)`);
     
     // Clear container
     container.innerHTML = '';
@@ -1107,7 +1176,7 @@
     back.onclick = () => { showIflowOverview(data, container); };
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = `Failed Messages - ${iflow.name}`;
+    title.textContent = `FlowFixer - ${iflow.name} (${messagesToShow.length} messages)`;
     header.appendChild(back);
     header.appendChild(title);
     
@@ -1141,7 +1210,7 @@
     
     const tbody = table.querySelector('tbody');
     
-    iflow.messages.forEach(msg => {
+    messagesToShow.forEach(msg => {
       const tr = document.createElement('tr');
       
       const tdCheck = document.createElement('td');
@@ -1228,7 +1297,29 @@
       try {
         const result = await resendSelectedMessages(selectedGuids, iflow.messages, data);
         resendStatus.textContent = '';
+        
+        // Delete successful messages from storage
+        if (result.successCount > 0) {
+          const successfulGuids = result.results.filter(r => r.success).map(r => r.messageGuid);
+          await deleteResentMessagesFromStorage(iflow.name, successfulGuids);
+        }
+        
+        // Show alert
         alert(`Resend complete!\n\nSuccess: ${result.successCount}\nFailed: ${result.failedCount}\nTotal: ${result.total}`);
+        
+        // Update UI to remove successful messages
+        if (result.successCount > 0) {
+          // Filter out successful messages from iflow.messages
+          const successfulGuids = result.results.filter(r => r.success).map(r => r.messageGuid);
+          iflow.messages = iflow.messages.filter(msg => !successfulGuids.includes(msg.MessageGuid));
+          
+          // Update failed count
+          iflow.failedCount = iflow.messages.length;
+          
+          // Refresh the display
+          console.log(`Refreshing display, ${iflow.messages.length} messages remaining`);
+          showFailedMessages(iflow, data, container);
+        }
       } catch (error) {
         resendStatus.textContent = 'Error: ' + error.message;
         alert('Failed to resend messages: ' + error.message);
@@ -1542,6 +1633,41 @@
     }
   }
 
+  async function deleteResentMessagesFromStorage(iflowName, messageGuids) {
+    try {
+      // Get all saved payloads
+      const allPayloads = await getAllSavedPayloads();
+      const iflowPayloads = allPayloads[iflowName] || [];
+      
+      // Filter out successfully resent messages
+      const remainingPayloads = iflowPayloads.filter(p => !messageGuids.includes(p.messageGuid));
+      
+      console.log(`Deleting ${messageGuids.length} successfully resent messages from storage`);
+      console.log(`Before: ${iflowPayloads.length} messages, After: ${remainingPayloads.length} messages`);
+      
+      // Update storage
+      allPayloads[iflowName] = remainingPayloads;
+      
+      await new Promise((resolve, reject) => {
+        chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve();
+          }
+        });
+      });
+      
+      // Invalidate cache so counts are recalculated on next load
+      await new Promise((resolve) => {
+        chrome.storage.local.remove(['resenderCachedData', 'resenderCacheTimestamp'], resolve);
+      });
+      console.log(`✓ Deleted ${messageGuids.length} messages from storage and invalidated cache`);
+    } catch (error) {
+      console.error('Error deleting messages from storage:', error);
+    }
+  }
+
   // ============ FETCH AND SAVE FAILED MESSAGES WITH PAYLOADS ============
 
   async function fetchAndSaveFailedMessagesWithPayloads(iflowSymbolicName, username, password, progressCallback) {
@@ -1830,7 +1956,7 @@
   });
 
   // ============ In-page embedding (left navigation entry + panel) ============
-  // This code injects a left navigation item named "CPI Helper Lite" into the
+  // This code injects a left navigation item named "FlowFixer" into the
   // SAP Integration Suite side navigation. Clicking the item opens an in-page
   // panel that renders the same iFlows table as the popup.
 
@@ -1842,34 +1968,49 @@
       .cpi-lite-panel{position:fixed; inset:auto 0 0 auto; top:64px; right:16px; width:min(860px, 92vw); height:calc(100vh - 80px); background:#fff; color:#1b1b1b; box-shadow:0 6px 24px rgba(0,0,0,.2); border-radius:8px; display:flex; flex-direction:column; z-index:2147483000;}
       .cpi-lite-dark .cpi-lite-panel{background:#1c2834; color:#eaecef;}
       #cpi-lite-page-root{ height:100%; display:flex; flex-direction:column; }
-      .cpi-lite-header{display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(0,0,0,.08)}
-      .cpi-lite-dark .cpi-lite-header{border-bottom-color:rgba(255,255,255,.12)}
-      .cpi-lite-title{font-size:14px; font-weight:600}
-      .cpi-lite-close{border:none; background:transparent; cursor:pointer; font-size:16px}
-      .cpi-lite-body{padding:12px; overflow:auto; height:100%; flex:1;}
-      .cpi-lite-table{border-collapse:collapse; width:100%}
-      .cpi-lite-table th,.cpi-lite-table td{border-bottom:1px solid rgba(0,0,0,.06); padding:8px; text-align:left}
-      .cpi-lite-table th{background:rgba(0,0,0,.03); position:sticky; top:0; z-index:1}
+      .cpi-lite-header{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:linear-gradient(135deg, #4A90E2 0%, #5BA3F5 100%); color:#fff; border-radius:8px 8px 0 0;}
+      .cpi-lite-dark .cpi-lite-header{background:linear-gradient(135deg, #2C5F8D 0%, #3A7BC8 100%);}
+      .cpi-lite-title{font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;}
+      .cpi-lite-title::before{content:'🔧'; font-size:18px;}
+      .cpi-lite-close{border:none; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font-size:18px; width:28px; height:28px; border-radius:4px; display:flex; align-items:center; justify-content:center;}
+      .cpi-lite-close:hover{background:rgba(255,255,255,0.3);}
+      .cpi-lite-body{padding:12px; overflow:auto; height:100%; flex:1; background:#f8fbff;}
+      .cpi-lite-table{border-collapse:collapse; width:100%; background:#fff; border-radius:6px; overflow:hidden;}
+      .cpi-lite-table th,.cpi-lite-table td{border-bottom:1px solid #e3f2fd; padding:10px; text-align:left}
+      .cpi-lite-table th{background:linear-gradient(to bottom, #e3f2fd 0%, #d1e9ff 100%); color:#1565c0; font-weight:600; position:sticky; top:0; z-index:1}
       .cpi-lite-count{ text-align:right }
-      .cpi-lite-ok{ color:#2c7a2c }
-      .cpi-lite-fail{ color:#c53030 }
+      .cpi-lite-ok{ color:#2e7d32; font-weight:600 }
+      .cpi-lite-fail{ color:#d32f2f; font-weight:600 }
       .cpi-lite-nav-btn{ display:flex; align-items:center; gap:8px; padding:8px 10px; margin:6px 8px; border-radius:6px; cursor:pointer; user-select:none;}
-      .cpi-lite-nav-btn:hover{ background:rgba(0,0,0,.06) }
+      .cpi-lite-nav-btn:hover{ background:rgba(74,144,226,.1) }
       .cpi-lite-hidden{ display:none !important }
-      .cpi-lite-controls{ display:flex; gap:12px; align-items:center; margin:12px 0 }
-      .cpi-lite-input{ padding:6px 8px; border:1px solid rgba(0,0,0,.2); border-radius:6px; width:110px }
-      .cpi-lite-btn{ padding:6px 12px; border:1px solid rgba(0,0,0,.2); border-radius:6px; background:#1f2d40; color:#fff; cursor:pointer }
-      .cpi-lite-btn:disabled{ opacity:.6; cursor:default }
+      .cpi-lite-controls{ display:flex; gap:12px; align-items:center; margin:12px 0; padding:12px; background:#fff; border-radius:6px; box-shadow:0 2px 4px rgba(0,0,0,.05); }
+      .cpi-lite-input{ padding:8px 10px; border:2px solid #bbdefb; border-radius:6px; width:110px; transition:border-color 0.2s; }
+      .cpi-lite-input:focus{ border-color:#4A90E2; outline:none; }
+      .cpi-lite-btn{ padding:8px 16px; border:none; border-radius:6px; background:linear-gradient(135deg, #4A90E2 0%, #5BA3F5 100%); color:#fff; cursor:pointer; font-weight:500; transition:transform 0.1s, box-shadow 0.2s; box-shadow:0 2px 4px rgba(74,144,226,.3); }
+      .cpi-lite-btn:hover{ transform:translateY(-1px); box-shadow:0 4px 8px rgba(74,144,226,.4); }
+      .cpi-lite-btn:active{ transform:translateY(0); }
+      .cpi-lite-btn:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
+      .cpi-lite-btn.success{ background:linear-gradient(135deg, #2e7d32 0%, #43a047 100%); box-shadow:0 2px 4px rgba(46,125,50,.3); }
+      .cpi-lite-btn.success:hover{ box-shadow:0 4px 8px rgba(46,125,50,.4); }
+      .cpi-lite-btn.danger{ background:linear-gradient(135deg, #d32f2f 0%, #e53935 100%); box-shadow:0 2px 4px rgba(211,47,47,.3); }
+      .cpi-lite-btn.danger:hover{ box-shadow:0 4px 8px rgba(211,47,47,.4); }
+      .cpi-lite-btn.warning{ background:linear-gradient(135deg, #f57c00 0%, #ff9800 100%); box-shadow:0 2px 4px rgba(245,124,0,.3); }
+      .cpi-lite-btn.warning:hover{ box-shadow:0 4px 8px rgba(245,124,0,.4); }
       .cpi-lite-pager{ display:flex; gap:8px; align-items:center; margin:10px 0 }
-      .cpi-lite-link{ color:#0a66c2; cursor:pointer; user-select:none }
-      .cpi-lite-back{ padding:6px 10px; border:1px solid rgba(0,0,0,.2); border-radius:6px; background:#eef3f8; color:#1b1b1b; cursor:pointer; margin-right:8px }
-      .cpi-lite-checkbox{ margin:0 8px 0 0; cursor:pointer }
-      .cpi-lite-dialog{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; padding:20px; border-radius:8px; box-shadow:0 6px 24px rgba(0,0,0,.3); z-index:2147483100; min-width:400px }
-      .cpi-lite-dark .cpi-lite-dialog{ background:#1c2834; color:#eaecef }
-      .cpi-lite-dialog-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2147483099 }
-      .cpi-lite-dialog input{ width:100%; padding:8px; margin:8px 0; border:1px solid rgba(0,0,0,.2); border-radius:4px; box-sizing:border-box }
+      .cpi-lite-link{ color:#4A90E2; cursor:pointer; user-select:none; font-weight:500; }
+      .cpi-lite-link:hover{ color:#2C5F8D; text-decoration:underline; }
+      .cpi-lite-back{ padding:8px 14px; border:2px solid #bbdefb; border-radius:6px; background:#fff; color:#4A90E2; cursor:pointer; margin-right:8px; font-weight:500; transition:all 0.2s; }
+      .cpi-lite-back:hover{ background:#e3f2fd; border-color:#4A90E2; }
+      .cpi-lite-checkbox{ margin:0 8px 0 0; cursor:pointer; width:18px; height:18px; }
+      .cpi-lite-dialog{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.2); z-index:2147483100; min-width:400px; border-top:4px solid #4A90E2; }
+      .cpi-lite-dark .cpi-lite-dialog{ background:#1c2834; color:#eaecef; border-top-color:#5BA3F5; }
+      .cpi-lite-dialog-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2147483099; backdrop-filter:blur(2px); }
+      .cpi-lite-dialog input{ width:100%; padding:10px; margin:8px 0; border:2px solid #bbdefb; border-radius:6px; box-sizing:border-box; transition:border-color 0.2s; }
+      .cpi-lite-dialog input:focus{ border-color:#4A90E2; outline:none; }
       .cpi-lite-dialog-buttons{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px }
-      .cpi-lite-select-all{ margin-right:8px; padding:6px 12px; border:1px solid rgba(0,0,0,.2); border-radius:6px; background:#f6f6f6; color:#1b1b1b; cursor:pointer }
+      .cpi-lite-select-all{ margin-right:8px; padding:8px 16px; border:2px solid #bbdefb; border-radius:6px; background:#fff; color:#4A90E2; cursor:pointer; font-weight:500; transition:all 0.2s; }
+      .cpi-lite-select-all:hover{ background:#e3f2fd; border-color:#4A90E2; }
     `;
     document.head.appendChild(style);
   }
@@ -1900,7 +2041,7 @@
     header.className = 'cpi-lite-header';
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = 'iFlows and Message Counts';
+    title.textContent = 'FlowFixer - Message Overview';
     const close = document.createElement('button');
     close.className = 'cpi-lite-close';
     close.setAttribute('aria-label','Close');
@@ -1917,7 +2058,7 @@
     controls.innerHTML = `
       <label>BatchSize: <input id="cpi-lite-batch" class="cpi-lite-input" type="number" min="1" step="1" value="${state.batchSize}"></label>
       <button id="cpi-lite-load" class="cpi-lite-btn">Get Message Overview</button>
-      <button id="cpi-lite-resender" class="cpi-lite-btn">Resender Interface</button>
+      <button id="cpi-lite-resender" class="cpi-lite-btn">Resender</button>
       <span id="cpi-lite-status" style="margin-left:8px; color:#666;"></span>
     `;
     body.appendChild(controls);
@@ -2112,14 +2253,14 @@
     header.className = 'cpi-lite-header';
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = 'CPI Helper Lite';
+    title.textContent = 'FlowFixer';
     header.appendChild(title);
     const controls = document.createElement('div');
     controls.className = 'cpi-lite-controls';
     controls.innerHTML = `
       <label>BatchSize: <input id="cpi-lite-batch" class="cpi-lite-input" type="number" min="1" step="1" value="${state.batchSize}"></label>
       <button id="cpi-lite-load" class="cpi-lite-btn">Get Message Overview</button>
-      <button id="cpi-lite-resender" class="cpi-lite-btn">Resender Interface</button>
+      <button id="cpi-lite-resender" class="cpi-lite-btn">Resender</button>
       <span id="cpi-lite-status" style="margin-left:8px; color:#666;"></span>
     `;
     const table = document.createElement('table');
@@ -3566,7 +3707,7 @@ ${cleanedPayload}
       const rootId = 'cpi-lite-panel-root';
       let root = document.getElementById(rootId);
       if (!root){ root = document.createElement('div'); root.id=rootId; document.body.appendChild(root); }
-      root.innerHTML = `<div class="cpi-lite-panel"><div class="cpi-lite-header"><div class="cpi-lite-title">CPI Helper Lite</div><button class="cpi-lite-close" aria-label="Close">✕</button></div><div class="cpi-lite-body"><div style="color:#c53030">${String(e && e.message || e)}</div></div></div>`;
+      root.innerHTML = `<div class="cpi-lite-panel"><div class="cpi-lite-header"><div class="cpi-lite-title">FlowFixer</div><button class="cpi-lite-close" aria-label="Close">✕</button></div><div class="cpi-lite-body"><div style="color:#c53030">${String(e && e.message || e)}</div></div></div>`;
       root.querySelector('.cpi-lite-close')?.addEventListener('click', ()=>root.remove());
     }
   }
@@ -3597,7 +3738,7 @@ ${cleanedPayload}
     icon.width = 16; icon.height = 16;
     icon.src = chrome.runtime.getURL('images/v4/16.png');
     const text = document.createElement('span');
-    text.textContent = 'CPI Helper Lite';
+    text.textContent = 'FlowFixer';
     item.appendChild(icon);
     item.appendChild(text);
     item.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); openInPage(); });

@@ -2,22 +2,23 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>CPI Helper Lite</title>
+  <title>FlowFixer</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 12px; width: 680px; }
-    h1 { font-size: 16px; margin: 0 0 8px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 12px; width: 680px; background: linear-gradient(to bottom, #f8fbff 0%, #fff 100%); }
+    h1 { font-size: 18px; margin: 0 0 8px; color: #4A90E2; font-weight: 600; }
+    h1::before { content: '🔧 '; }
     .status { margin: 6px 0 10px; color: #666; font-size: 12px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
-    th { background: #f6f6f6; position: sticky; top: 0; z-index: 1; }
+    table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 6px; overflow: hidden; }
+    th, td { border-bottom: 1px solid #e3f2fd; padding: 8px; text-align: left; }
+    th { background: linear-gradient(to bottom, #e3f2fd 0%, #d1e9ff 100%); color: #1565c0; font-weight: 600; position: sticky; top: 0; z-index: 1; }
     .counts { text-align: right; }
-    .ok { color: #2c7a2c; }
-    .fail { color: #c53030; }
+    .ok { color: #2e7d32; font-weight: 600; }
+    .fail { color: #d32f2f; font-weight: 600; }
     .scroll { max-height: 520px; overflow: auto; }
   </style>
 </head>
 <body>
-  <h1>iFlows and Message Counts</h1>
+  <h1>FlowFixer - Message Overview</h1>
   <div class="status" id="status">Loading from current tenant...</div>
   <div class="scroll">
     <table>

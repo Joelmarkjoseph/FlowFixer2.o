@@ -1,5 +1,5 @@
 // Background script for handling cross-origin requests
-console.log('CPI Helper Lite background script loaded - v2');
+console.log('FlowFixer background script loaded - v2');
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background received message:', request.type);

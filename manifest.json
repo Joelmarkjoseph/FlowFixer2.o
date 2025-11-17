@@ -1,8 +1,8 @@
 {
-  "name": "CPI Helper Lite",
-  "short_name": "CPI Lite",
+  "name": "FlowFixer",
+  "short_name": "FlowFixer",
   "version": "0.1.0",
-  "description": "Shows all iFlows and their completed/failed message counts in the current tenant.",
+  "description": "Fix failed SAP CPI messages - View, resend, and manage failed integration flows with ease.",
   "manifest_version": 3,
   "permissions": [
     "storage"

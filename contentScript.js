@@ -1060,25 +1060,15 @@
       const json = JSON.parse(response);
       let logs = json.value || json.d?.results || [];
       
-      console.log('=== MESSAGE PROCESSING LOGS (Before Filtering) ===');
+      console.log('=== MESSAGE PROCESSING LOGS ===');
       console.log('Total logs fetched:', logs.length);
       
-      // Filter out resent messages by checking IndexedDB
+      // Get resent message GUIDs for marking (not filtering)
       const resentGuids = await flowFixerDB.getAllResentMessageGuids();
       const resentGuidsSet = new Set(resentGuids);
       
-      console.log(`Found ${resentGuids.length} resent message GUIDs in IndexedDB`);
+      console.log(`Found ${resentGuids.length} resent message GUIDs in IndexedDB (will mark as green)`);
       
-      logs = logs.filter(log => {
-        const isResent = resentGuidsSet.has(log.MessageGuid);
-        if (isResent) {
-          console.log(`✓ Filtering out resent message: ${log.MessageGuid}`);
-          return false;
-        }
-        return true;
-      });
-      
-      console.log('Total logs after filtering:', logs.length);
       console.log('Logs:', logs);
       console.table(logs);
       console.log('=== END MESSAGE PROCESSING LOGS ===');
@@ -1166,17 +1156,12 @@
       
       console.log('\n=== FINISHED FETCHING ATTACHMENTS AND PAYLOADS ===');
       
-      // Check resent history for all messages
-      console.log('\n=== CHECKING RESENT HISTORY ===');
-      const resentGuids = await flowFixerDB.getAllResentMessageGuids();
-      const resentGuidsSet = new Set(resentGuids);
-      console.log(`Found ${resentGuids.length} messages in resent history`);
-      
-      // Mark messages that were previously resent
+      // Mark messages that were previously resent (reuse resentGuidsSet from filtering above)
+      console.log('\n=== MARKING RESENT MESSAGES ===');
       messagesWithPayloads.forEach(msg => {
         if (resentGuidsSet.has(msg.MessageGuid)) {
           msg.resentSuccessfully = true;
-          console.log(`  ✓ Message ${msg.MessageGuid} was previously resent`);
+          console.log(`  ✓ Message ${msg.MessageGuid} was previously resent (marking green)`);
         }
       });
       

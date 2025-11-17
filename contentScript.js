@@ -11,6 +11,384 @@
     resenderMessages: [],
   };
 
+  // ============ MODAL/POPUP FUNCTIONS ============
+  
+  /**
+   * Show custom modal dialog (replaces alert)
+   */
+  function showModal(message, title = 'FlowFixer', type = 'info') {
+    return new Promise((resolve) => {
+      // Remove any existing modals
+      const existingModal = document.getElementById('flowfixer-modal-overlay');
+      if (existingModal) {
+        existingModal.remove();
+      }
+
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'flowfixer-modal-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(2px);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.2s ease-in;
+      `;
+
+      // Create modal
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 90%;
+        max-height: 80vh;
+        overflow: auto;
+        animation: slideIn 0.3s ease-out;
+      `;
+
+      // Icon based on type
+      const icons = {
+        info: '💡',
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        question: '❓'
+      };
+      const icon = icons[type] || icons.info;
+
+      // Header
+      const header = document.createElement('div');
+      header.style.cssText = `
+        padding: 20px 24px;
+        border-bottom: 2px solid #e8eef7;
+        background: linear-gradient(135deg, #051747 0%, #081F62 100%);
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      `;
+      header.innerHTML = `
+        <span style="font-size: 24px;">${icon}</span>
+        <span style="font-size: 18px; font-weight: 600; color: white;">${title}</span>
+      `;
+
+      // Content
+      const content = document.createElement('div');
+      content.style.cssText = `
+        padding: 24px;
+        color: #333;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        font-size: 14px;
+      `;
+      content.textContent = message;
+
+      // Footer with button
+      const footer = document.createElement('div');
+      footer.style.cssText = `
+        padding: 16px 24px;
+        border-top: 1px solid #e8eef7;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      `;
+
+      const okButton = document.createElement('button');
+      okButton.textContent = 'OK';
+      okButton.style.cssText = `
+        padding: 10px 24px;
+        background: linear-gradient(135deg, #051747 0%, #081F62 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: transform 0.1s, box-shadow 0.2s;
+        box-shadow: 0 2px 4px rgba(74, 144, 226, 0.3);
+      `;
+      okButton.onmouseover = () => {
+        okButton.style.transform = 'translateY(-1px)';
+        okButton.style.boxShadow = '0 4px 8px rgba(74, 144, 226, 0.4)';
+      };
+      okButton.onmouseout = () => {
+        okButton.style.transform = 'translateY(0)';
+        okButton.style.boxShadow = '0 2px 4px rgba(74, 144, 226, 0.3)';
+      };
+      okButton.onclick = () => {
+        overlay.remove();
+        resolve(true);
+      };
+
+      footer.appendChild(okButton);
+
+      // Assemble modal
+      modal.appendChild(header);
+      modal.appendChild(content);
+      modal.appendChild(footer);
+      overlay.appendChild(modal);
+
+      // Add to page
+      document.body.appendChild(overlay);
+
+      // Focus button
+      okButton.focus();
+
+      // Close on overlay click
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          overlay.remove();
+          resolve(false);
+        }
+      };
+
+      // Close on Escape key
+      const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+          overlay.remove();
+          document.removeEventListener('keydown', escapeHandler);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', escapeHandler);
+    });
+  }
+
+  /**
+   * Show confirmation dialog (replaces confirm)
+   */
+  function showConfirm(message, title = 'FlowFixer', okText = 'OK', cancelText = 'Cancel') {
+    return new Promise((resolve) => {
+      // Remove any existing modals
+      const existingModal = document.getElementById('flowfixer-modal-overlay');
+      if (existingModal) {
+        existingModal.remove();
+      }
+
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'flowfixer-modal-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(2px);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.2s ease-in;
+      `;
+
+      // Create modal
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 90%;
+        animation: slideIn 0.3s ease-out;
+      `;
+
+      // Header
+      const header = document.createElement('div');
+      header.style.cssText = `
+        padding: 20px 24px;
+        border-bottom: 2px solid #e8eef7;
+        background: linear-gradient(135deg, #051747 0%, #081F62 100%);
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      `;
+      header.innerHTML = `
+        <span style="font-size: 24px;">❓</span>
+        <span style="font-size: 18px; font-weight: 600; color: white;">${title}</span>
+      `;
+
+      // Content
+      const content = document.createElement('div');
+      content.style.cssText = `
+        padding: 24px;
+        color: #333;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        font-size: 14px;
+      `;
+      content.textContent = message;
+
+      // Footer with buttons
+      const footer = document.createElement('div');
+      footer.style.cssText = `
+        padding: 16px 24px;
+        border-top: 1px solid #e8eef7;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      `;
+
+      const cancelButton = document.createElement('button');
+      cancelButton.textContent = cancelText;
+      cancelButton.style.cssText = `
+        padding: 10px 24px;
+        background: white;
+        color: #051747;
+        border: 2px solid #b3c5e6;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      `;
+      cancelButton.onmouseover = () => {
+        cancelButton.style.background = '#e8eef7';
+        cancelButton.style.borderColor = '#051747';
+      };
+      cancelButton.onmouseout = () => {
+        cancelButton.style.background = 'white';
+        cancelButton.style.borderColor = '#b3c5e6';
+      };
+      cancelButton.onclick = () => {
+        overlay.remove();
+        resolve(false);
+      };
+
+      const okButton = document.createElement('button');
+      okButton.textContent = okText;
+      okButton.style.cssText = `
+        padding: 10px 24px;
+        background: linear-gradient(135deg, #051747 0%, #081F62 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: transform 0.1s, box-shadow 0.2s;
+        box-shadow: 0 2px 4px rgba(74, 144, 226, 0.3);
+      `;
+      okButton.onmouseover = () => {
+        okButton.style.transform = 'translateY(-1px)';
+        okButton.style.boxShadow = '0 4px 8px rgba(74, 144, 226, 0.4)';
+      };
+      okButton.onmouseout = () => {
+        okButton.style.transform = 'translateY(0)';
+        okButton.style.boxShadow = '0 2px 4px rgba(74, 144, 226, 0.3)';
+      };
+      okButton.onclick = () => {
+        overlay.remove();
+        resolve(true);
+      };
+
+      footer.appendChild(cancelButton);
+      footer.appendChild(okButton);
+
+      // Assemble modal
+      modal.appendChild(header);
+      modal.appendChild(content);
+      modal.appendChild(footer);
+      overlay.appendChild(modal);
+
+      // Add to page
+      document.body.appendChild(overlay);
+
+      // Focus OK button
+      okButton.focus();
+
+      // Close on Escape key
+      const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+          overlay.remove();
+          document.removeEventListener('keydown', escapeHandler);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', escapeHandler);
+    });
+  }
+
+  // Add CSS animations
+  const styleSheet = document.createElement('style');
+  styleSheet.textContent = `
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes slideIn {
+      from { transform: translateY(-20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(styleSheet);
+
+  // ============ INDEXEDDB WRAPPER FUNCTIONS ============
+  
+  /**
+   * Save cache data to IndexedDB
+   */
+  async function saveCacheData(data) {
+    try {
+      await flowFixerDB.saveCache('resenderCachedData', data);
+      await flowFixerDB.saveMetadata('resenderCacheTimestamp', Date.now());
+    } catch (error) {
+      console.error('Error saving cache to IndexedDB:', error);
+    }
+  }
+
+  /**
+   * Get cache data from IndexedDB
+   */
+  async function getCacheData() {
+    try {
+      const cacheResult = await flowFixerDB.getCache('resenderCachedData');
+      const timestamp = await flowFixerDB.getMetadata('resenderCacheTimestamp');
+      
+      return {
+        resenderCachedData: cacheResult ? cacheResult.data : null,
+        resenderCacheTimestamp: timestamp
+      };
+    } catch (error) {
+      console.error('Error getting cache from IndexedDB:', error);
+      return { resenderCachedData: null, resenderCacheTimestamp: null };
+    }
+  }
+
+  /**
+   * Save credentials (still using chrome.storage.local for security)
+   */
+  async function saveCredentials(credentials) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set(credentials, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Failed to save credentials:', chrome.runtime.lastError.message);
+        } else {
+          console.log('Credentials saved');
+        }
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Get credentials (still using chrome.storage.local)
+   */
+  async function getCredentials(keys) {
+    return safeStorageGet(keys);
+  }
+
   function absolutePath(href){
     const a = document.createElement('a');
     a.href = href;
@@ -622,7 +1000,7 @@
     }
   }
 
-  async function fetchMessageProcessingLogs(username, password, apiUrl) {
+  async function fetchMessageProcessingLogs(username, password, apiUrl, daysBack = 1) {
     try {
       // Determine base URL
       let baseUrl;
@@ -656,13 +1034,14 @@
       
       console.log('Final Base URL:', baseUrl);
       
-      // Calculate start of today (00:00:00)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const dateTimeStr = today.toISOString().replace(/\.\d{3}Z$/, '.000');
+      // Calculate start time based on daysBack parameter
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - (daysBack - 1)); // daysBack=1 means today, daysBack=2 means yesterday+today
+      startDate.setHours(0, 0, 0, 0);
+      const dateTimeStr = startDate.toISOString().replace(/\.\d{3}Z$/, '.000');
       
-      console.log('Fetching failed messages from today (00:00) to now');
-      console.log('Start time:', dateTimeStr);
+      console.log(`Fetching failed messages from last ${daysBack} day(s)`);
+      console.log('Start time:', dateTimeStr, `(${daysBack} day(s) back)`);
       
       // Build the MessageProcessingLogs URL with pagination (top 30)
       const select = '$select=MessageGuid,CorrelationId,ApplicationMessageId,PredecessorMessageGuid,ApplicationMessageType,LogStart,LogEnd,Sender,Receiver,IntegrationFlowName,Status,AlternateWebLink,LogLevel,CustomStatus,ArchivingStatus,ArchivingSenderChannelMessages,ArchivingReceiverChannelMessages,ArchivingLogAttachments,ArchivingPersistedMessages,TransactionId,PreviousComponentName,LocalComponentName,OriginComponentName,IntegrationArtifact';
@@ -684,19 +1063,19 @@
       console.log('=== MESSAGE PROCESSING LOGS (Before Filtering) ===');
       console.log('Total logs fetched:', logs.length);
       
-      // Filter out FlowFixer resent messages
-      // Check if the log has a custom property indicating it was resent by FlowFixer
+      // Filter out resent messages by checking IndexedDB
+      const resentGuids = await flowFixerDB.getAllResentMessageGuids();
+      const resentGuidsSet = new Set(resentGuids);
+      
+      console.log(`Found ${resentGuids.length} resent message GUIDs in IndexedDB`);
+      
       logs = logs.filter(log => {
-        // Check various possible property names for the custom header
-        const isFlowFixerResend = log.FlowFixerResend === 'true' || 
-                                   log['X-FlowFixer-Resend'] === 'true' ||
-                                   log.CustomHeaderProperties?.includes('X-FlowFixer-Resend');
-        
-        if (isFlowFixerResend) {
-          console.log(`Filtering out FlowFixer resent message: ${log.MessageGuid}`);
-          return false; // Exclude this message
+        const isResent = resentGuidsSet.has(log.MessageGuid);
+        if (isResent) {
+          console.log(`✓ Filtering out resent message: ${log.MessageGuid}`);
+          return false;
         }
-        return true; // Include this message
+        return true;
       });
       
       console.log('Total logs after filtering:', logs.length);
@@ -787,6 +1166,20 @@
       
       console.log('\n=== FINISHED FETCHING ATTACHMENTS AND PAYLOADS ===');
       
+      // Check resent history for all messages
+      console.log('\n=== CHECKING RESENT HISTORY ===');
+      const resentGuids = await flowFixerDB.getAllResentMessageGuids();
+      const resentGuidsSet = new Set(resentGuids);
+      console.log(`Found ${resentGuids.length} messages in resent history`);
+      
+      // Mark messages that were previously resent
+      messagesWithPayloads.forEach(msg => {
+        if (resentGuidsSet.has(msg.MessageGuid)) {
+          msg.resentSuccessfully = true;
+          console.log(`  ✓ Message ${msg.MessageGuid} was previously resent`);
+        }
+      });
+      
       // Group by iFlow
       const iflowSummary = {};
       messagesWithPayloads.forEach(msg => {
@@ -831,18 +1224,12 @@
           console.log(`  Saved ${payloadsToSave.length} payloads for iFlow: ${iflowName}`);
         });
         
-        // Save to Chrome storage
-        await new Promise((resolve, reject) => {
-          chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve();
-            }
-          });
-        });
+        // Save to IndexedDB
+        for (const iflowName of Object.keys(allPayloads)) {
+          await flowFixerDB.savePayloads(iflowName, allPayloads[iflowName]);
+        }
         
-        console.log('✓ All payloads saved to storage successfully');
+        console.log('✓ All payloads saved to IndexedDB successfully');
       } catch (storageError) {
         console.error('✗ Failed to save payloads to storage:', storageError);
       }
@@ -893,18 +1280,46 @@
       
       console.log(`Fetched ${logs.length} more messages`);
       
-      // Filter out FlowFixer resent messages
-      logs = logs.filter(log => {
-        const isFlowFixerResend = log.FlowFixerResend === 'true' || 
-                                   log['X-FlowFixer-Resend'] === 'true' ||
-                                   log.CustomHeaderProperties?.includes('X-FlowFixer-Resend');
-        
-        if (isFlowFixerResend) {
-          console.log(`Filtering out FlowFixer resent message: ${log.MessageGuid}`);
-          return false;
+      // Filter out FlowFixer resent messages by checking for FlowFixerResendInfo attachment
+      const filteredLogs = [];
+      
+      for (const log of logs) {
+        try {
+          // Check attachments for FlowFixerResendInfo marker
+          const attachmentsUrl = `${baseUrl}/api/v1/MessageProcessingLogs('${log.MessageGuid}')/Attachments?$format=json`;
+          
+          let isFlowFixerResend = false;
+          
+          try {
+            const attachmentsResponse = await httpWithAuth('GET', attachmentsUrl, username, password, null, 'application/json');
+            const attachmentsJson = JSON.parse(attachmentsResponse);
+            const attachments = attachmentsJson.d?.results || attachmentsJson.value || [];
+            
+            // Check if FlowFixerResendInfo attachment exists
+            const flowFixerAttachment = attachments.find(att => 
+              (att.Name === 'FlowFixerResendInfo' || att.Name === 'FlowFixer-Resend-Marker')
+            );
+            
+            if (flowFixerAttachment) {
+              isFlowFixerResend = true;
+              console.log(`✓ Filtering out FlowFixer resent message: ${log.MessageGuid}`);
+            }
+          } catch (attError) {
+            // If attachments fetch fails, include the message
+            console.log(`Could not fetch attachments for ${log.MessageGuid}, including message`);
+          }
+          
+          if (!isFlowFixerResend) {
+            filteredLogs.push(log);
+          }
+        } catch (error) {
+          // If any error, include the message
+          console.error(`Error checking message ${log.MessageGuid}:`, error);
+          filteredLogs.push(log);
         }
-        return true;
-      });
+      }
+      
+      logs = filteredLogs;
       
       console.log(`After filtering: ${logs.length} messages`);
       
@@ -969,6 +1384,17 @@
         
         messagesWithPayloads.push(messageData);
       }
+      
+      // Check resent history for newly loaded messages
+      const resentGuids = await flowFixerDB.getAllResentMessageGuids();
+      const resentGuidsSet = new Set(resentGuids);
+      
+      messagesWithPayloads.forEach(msg => {
+        if (resentGuidsSet.has(msg.MessageGuid)) {
+          msg.resentSuccessfully = true;
+          console.log(`  ✓ Message ${msg.MessageGuid} was previously resent`);
+        }
+      });
       
       // Check if there are more messages
       const hasMore = logs.length === 15;
@@ -1080,16 +1506,16 @@
     
     dialog.querySelector('#cpi-lite-auth-cancel').addEventListener('click', closeDialog);
     
-    dialog.querySelector('#cpi-lite-auth-clear').addEventListener('click', ()=>{
+    dialog.querySelector('#cpi-lite-auth-clear').addEventListener('click', async ()=>{
       try {
         if (!chrome.runtime?.id) {
-          alert('Extension context invalidated. Please reload the page.');
+          await showModal(`Extension context invalidated. Please reload the page.`);
           return;
         }
         
-        chrome.storage.local.remove(['resenderUsername', 'resenderPassword', 'resenderApiUrl', 'resenderClientId', 'resenderClientSecret'], ()=>{
+        chrome.storage.local.remove(['resenderUsername', 'resenderPassword', 'resenderApiUrl', 'resenderClientId', 'resenderClientSecret'], async ()=>{
           if (chrome.runtime.lastError) {
-            alert('Failed to clear credentials: ' + chrome.runtime.lastError.message);
+            await showModal('Failed to clear credentials: ' + chrome.runtime.lastError.message, 'Error', 'error');
           } else {
             dialog.querySelector('#cpi-lite-auth-username').value = '';
             dialog.querySelector('#cpi-lite-auth-password').value = '';
@@ -1100,7 +1526,7 @@
             const clientSecretField = dialog.querySelector('#cpi-lite-auth-clientsecret');
             if (clientSecretField) clientSecretField.value = '';
             updateResenderButtonText();
-            alert('Saved credentials cleared');
+            await showModal(`Saved credentials cleared`, 'Success', 'success');
           }
         });
       } catch (error) {
@@ -1108,7 +1534,7 @@
       }
     });
     
-    dialog.querySelector('#cpi-lite-auth-confirm').addEventListener('click', ()=>{
+    dialog.querySelector('#cpi-lite-auth-confirm').addEventListener('click', async ()=>{
       const username = dialog.querySelector('#cpi-lite-auth-username').value.trim();
       const password = dialog.querySelector('#cpi-lite-auth-password').value;
       const apiUrlField = dialog.querySelector('#cpi-lite-auth-apiurl');
@@ -1119,27 +1545,27 @@
       const clientSecret = clientSecretField ? clientSecretField.value : null;
       
       if (!username){
-        alert('Please enter your SAP username');
+        await showModal(`Please enter your SAP username`);
         return;
       }
       
       if (!password){
-        alert('Please enter your SAP password');
+        await showModal(`Please enter your SAP password`);
         return;
       }
       
       // For Cloud Foundry, validate API URL and Client credentials
       if (!isNEO) {
         if (!apiUrl) {
-          alert('Please enter the API URL for Cloud Foundry');
+          await showModal(`Please enter the API URL for Cloud Foundry`);
           return;
         }
         if (!clientId) {
-          alert('Please enter Client ID for iFlow calls');
+          await showModal(`Please enter Client ID for iFlow calls`);
           return;
         }
         if (!clientSecret) {
-          alert('Please enter Client Secret for iFlow calls');
+          await showModal(`Please enter Client Secret for iFlow calls`);
           return;
         }
       }
@@ -1219,17 +1645,189 @@
     leftSection.appendChild(back);
     leftSection.appendChild(title);
     
+    // Right section with buttons
+    const rightSection = document.createElement('div');
+    rightSection.style.display = 'flex';
+    rightSection.style.gap = '8px';
+    rightSection.style.alignItems = 'center';
+    
+    // Export button
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'cpi-lite-btn';
+    exportBtn.style.cssText = `
+      font-size: 13px;
+      padding: 6px 12px;
+      background: white;
+      color: black;
+      border: 2px solid #051747;
+      border-radius: 8px;
+      font-family: var(--sapFontSemiboldDuplexFamily, 'Segoe UI Semibold', Arial, sans-serif);
+      cursor: pointer;
+    `;
+    exportBtn.textContent = 'Export History';
+    exportBtn.title = 'Export resent message history for shift handover';
+    exportBtn.onclick = async () => {
+      try {
+        exportBtn.disabled = true;
+        exportBtn.textContent = 'Exporting...';
+        
+        const exportData = await flowFixerDB.exportResentHistory();
+        
+        // Create JSON file
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        // Create download link
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        a.download = `FlowFixer-ResentHistory-${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        exportBtn.textContent = 'Exported!';
+        setTimeout(() => {
+          exportBtn.textContent = 'Export History';
+          exportBtn.disabled = false;
+        }, 2000);
+        
+        console.log(`✓ Exported ${exportData.totalRecords} resent history records`);
+      } catch (error) {
+        alert('Failed to export history: ' + error.message);
+        exportBtn.textContent = 'Export History';
+        exportBtn.disabled = false;
+      }
+    };
+    
+    // Import button
+    const importBtn = document.createElement('button');
+    importBtn.className = 'cpi-lite-btn';
+    importBtn.style.cssText = `
+      font-size: 13px;
+      padding: 6px 12px;
+      background: white;
+      color: black;
+      border: 2px solid #051747;
+      border-radius: 8px;
+      font-family: var(--sapFontSemiboldDuplexFamily, 'Segoe UI Semibold', Arial, sans-serif);
+      cursor: pointer;
+    `;
+    importBtn.textContent = 'Import History';
+    importBtn.title = 'Import resent message history from shift handover';
+    importBtn.onclick = () => {
+      // Create file input
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.json';
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+          importBtn.disabled = true;
+          importBtn.textContent = 'Importing...';
+          
+          const text = await file.text();
+          const importData = JSON.parse(text);
+          
+          // Ask user for import mode
+          const mode = await showConfirm(
+            `Import ${importData.totalRecords} records.\n\n` +
+            `Click OK to MERGE with existing data.\n` +
+            `Click Cancel to REPLACE all existing data.`
+          ) ? 'merge' : 'replace';
+          
+          const result = await flowFixerDB.importResentHistory(importData, mode);
+          
+          // Build detailed message
+          let message = `Import complete!\n\n`;
+          message += `New records added: ${result.imported}\n`;
+          if (result.updated > 0) {
+            message += `Existing records updated: ${result.updated}\n`;
+          }
+          if (result.skipped > 0) {
+            message += `Records skipped: ${result.skipped}\n`;
+          }
+          message += `--------------------\n`;
+          message += `Total processed: ${result.total}\n`;
+          message += `Mode: ${mode.toUpperCase()}`;
+          
+          if (result.updated > 0) {
+            message += `\n\n💡 ${result.updated} duplicate(s) were updated with new data.`;
+          }
+          
+          alert(message);
+          
+          importBtn.textContent = 'Imported!';
+          setTimeout(() => {
+            importBtn.textContent = 'Import History';
+            importBtn.disabled = false;
+          }, 2000);
+          
+          console.log(`✓ Import summary: ${result.imported} new, ${result.updated} updated, ${result.skipped} skipped`);
+        } catch (error) {
+          alert('Failed to import history: ' + error.message);
+          importBtn.textContent = 'Import History';
+          importBtn.disabled = false;
+        }
+      };
+      fileInput.click();
+    };
+    
+    // Days back selector
+    const daysBackContainer = document.createElement('div');
+    daysBackContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+    
+    const daysBackLabel = document.createElement('label');
+    daysBackLabel.style.cssText = 'font-size: 13px; color: white; font-weight: 500;';
+    daysBackLabel.textContent = 'Days Back:';
+    
+    const daysBackInput = document.createElement('input');
+    daysBackInput.type = 'number';
+    daysBackInput.min = '1';
+    daysBackInput.max = '30';
+    daysBackInput.value = '1';
+    daysBackInput.style.cssText = `
+      width: 60px;
+      padding: 6px 8px;
+      border: 2px solid white;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      background: white;
+      color: #051747;
+    `;
+    daysBackInput.title = 'Number of days to look back (1 = today only, 2 = today + yesterday)';
+    
+    daysBackContainer.appendChild(daysBackLabel);
+    daysBackContainer.appendChild(daysBackInput);
+    
     // Manual fetch button
     const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'cpi-lite-btn warning';
-    refreshBtn.style.fontSize = '13px';
-    refreshBtn.style.padding = '6px 12px';
-    refreshBtn.textContent = '🔄 Manual Message Fetch';
+    refreshBtn.className = 'cpi-lite-btn';
+    refreshBtn.style.cssText = `
+      font-size: 13px;
+      padding: 6px 12px;
+      background: white;
+      color: black;
+      border: 2px solid #051747;
+      border-radius: 8px;
+      font-family: var(--sapFontSemiboldDuplexFamily, 'Segoe UI Semibold', Arial, sans-serif);
+      cursor: pointer;
+    `;
+    refreshBtn.textContent = 'Manual Fetch';
     refreshBtn.title = 'Force refresh messages from server';
     refreshBtn.onclick = async () => {
       try {
         refreshBtn.disabled = true;
-        refreshBtn.textContent = '⏳ Fetching...';
+        refreshBtn.textContent = 'Fetching...';
+        
+        // Get days back value
+        const daysBack = parseInt(daysBackInput.value) || 1;
         
         // Get saved credentials
         const savedData = await safeStorageGet(['resenderUsername', 'resenderPassword', 'resenderApiUrl']);
@@ -1238,22 +1836,17 @@
         const apiUrl = savedData.resenderApiUrl;
         
         if (!username || !password) {
-          alert('No saved credentials found. Please reload and enter credentials.');
+          await showModal(`No saved credentials found. Please reload and enter credentials.`);
           refreshBtn.disabled = false;
-          refreshBtn.textContent = '🔄 Manual Message Fetch';
+          refreshBtn.textContent = 'Manual Fetch';
           return;
         }
         
-        // Fetch fresh data
-        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl);
+        // Fetch fresh data with days back parameter
+        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl, daysBack);
         
-        // Save to cache with timestamp
-        await new Promise((resolve) => {
-          chrome.storage.local.set({ 
-            resenderCachedData: freshData,
-            resenderCacheTimestamp: Date.now()
-          }, resolve);
-        });
+        // Save to cache
+        await saveCacheData(freshData);
         
         // Refresh the display
         showIflowOverview(freshData, container);
@@ -1261,12 +1854,17 @@
       } catch (error) {
         alert('Failed to fetch messages: ' + (error.message || error));
         refreshBtn.disabled = false;
-        refreshBtn.textContent = '🔄 Manual Message Fetch';
+        refreshBtn.textContent = 'Manual Fetch';
       }
     };
     
+    rightSection.appendChild(exportBtn);
+    rightSection.appendChild(importBtn);
+    rightSection.appendChild(daysBackContainer);
+    rightSection.appendChild(refreshBtn);
+    
     header.appendChild(leftSection);
-    header.appendChild(refreshBtn);
+    header.appendChild(rightSection);
     
     // Table
     const table = document.createElement('table');
@@ -1316,13 +1914,13 @@
       
       const loadMoreBtn = document.createElement('button');
       loadMoreBtn.className = 'cpi-lite-btn';
-      loadMoreBtn.textContent = '⬇️ Load More Messages (15)';
+      loadMoreBtn.textContent = 'Load More Messages (15)';
       loadMoreBtn.style.fontSize = '14px';
       loadMoreBtn.style.padding = '10px 20px';
       loadMoreBtn.onclick = async () => {
         try {
           loadMoreBtn.disabled = true;
-          loadMoreBtn.textContent = '⏳ Loading...';
+          loadMoreBtn.textContent = 'Loading...';
           
           // Load more messages
           const moreData = await loadMoreMessages(
@@ -1379,23 +1977,13 @@
             });
           });
           
-          await new Promise((resolve, reject) => {
-            chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
-              if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-              } else {
-                resolve();
-              }
-            });
-          });
+          // Save to IndexedDB
+          for (const iflowName of Object.keys(allPayloads)) {
+            await flowFixerDB.savePayloads(iflowName, allPayloads[iflowName]);
+          }
           
           // Update cache
-          await new Promise((resolve) => {
-            chrome.storage.local.set({ 
-              resenderCachedData: data,
-              resenderCacheTimestamp: Date.now()
-            }, resolve);
-          });
+          await saveCacheData(data);
           
           // Refresh the display
           showIflowOverview(data, container);
@@ -1403,7 +1991,7 @@
         } catch (error) {
           alert('Failed to load more messages: ' + (error.message || error));
           loadMoreBtn.disabled = false;
-          loadMoreBtn.textContent = '⬇️ Load More Messages (15)';
+          loadMoreBtn.textContent = 'Load More Messages (15)';
         }
       };
       
@@ -1478,12 +2066,19 @@
     messagesToShow.forEach(msg => {
       const tr = document.createElement('tr');
       
+      // Apply green background if message was successfully resent
+      if (msg.resentSuccessfully) {
+        tr.style.backgroundColor = '#d4edda'; // Light green
+        tr.style.borderLeft = '4px solid #28a745'; // Green left border
+        tr.title = 'Successfully resent on ' + (msg.resentAt ? new Date(msg.resentAt).toLocaleString() : 'unknown date');
+      }
+      
       const tdCheck = document.createElement('td');
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.className = 'message-checkbox';
       checkbox.dataset.messageGuid = msg.MessageGuid;
-      checkbox.disabled = !msg.payload; // Only enable if payload exists
+      checkbox.disabled = !msg.payload || msg.resentSuccessfully; // Disable if no payload or already resent
       tdCheck.appendChild(checkbox);
       
       const tdGuid = document.createElement('td');
@@ -1499,11 +2094,17 @@
       tdStart.textContent = msg.LogStart ? new Date(msg.LogStart).toLocaleString() : '-';
       
       const tdPayload = document.createElement('td');
-      tdPayload.textContent = msg.payload ? '✓ Yes' : '✗ No';
+      tdPayload.textContent = msg.payload ? 'Yes' : 'No';
       tdPayload.style.color = msg.payload ? 'green' : 'red';
       
       const tdStatus = document.createElement('td');
-      tdStatus.textContent = msg.Status;
+      if (msg.resentSuccessfully) {
+        tdStatus.textContent = 'Resent';
+        tdStatus.style.color = '#28a745';
+        tdStatus.style.fontWeight = '600';
+      } else {
+        tdStatus.textContent = msg.Status;
+      }
       
       tr.appendChild(tdCheck);
       tr.appendChild(tdGuid);
@@ -1554,7 +2155,7 @@
       
       if (selectedGuids.length === 0) return;
       
-      if (!confirm(`Resend ${selectedGuids.length} message(s)?`)) return;
+      if (!(await showConfirm(`Resend ${selectedGuids.length} message(s)?`, 'Confirm Resend', 'Resend', 'Cancel'))) return;
       
       resendBtn.disabled = true;
       resendStatus.textContent = 'Resending...';
@@ -1563,26 +2164,25 @@
         const result = await resendSelectedMessages(selectedGuids, iflow.messages, data);
         resendStatus.textContent = '';
         
-        // Delete successful messages from storage
+        // Mark successful messages as resent in storage
         if (result.successCount > 0) {
           const successfulGuids = result.results.filter(r => r.success).map(r => r.messageGuid);
-          await deleteResentMessagesFromStorage(iflow.name, successfulGuids);
+          await markMessagesAsResent(iflow.name, successfulGuids);
+          
+          // Update the messages in memory to mark them as resent
+          iflow.messages.forEach(msg => {
+            if (successfulGuids.includes(msg.MessageGuid)) {
+              msg.resentSuccessfully = true;
+            }
+          });
         }
         
         // Show alert
-        alert(`Resend complete!\n\nSuccess: ${result.successCount}\nFailed: ${result.failedCount}\nTotal: ${result.total}`);
+        await showModal(`Resend complete!\n\nSuccess: ${result.successCount}\nFailed: ${result.failedCount}\nTotal: ${result.total}`);
         
-        // Update UI to remove successful messages
+        // Refresh the display to show green rows
         if (result.successCount > 0) {
-          // Filter out successful messages from iflow.messages
-          const successfulGuids = result.results.filter(r => r.success).map(r => r.messageGuid);
-          iflow.messages = iflow.messages.filter(msg => !successfulGuids.includes(msg.MessageGuid));
-          
-          // Update failed count
-          iflow.failedCount = iflow.messages.length;
-          
-          // Refresh the display
-          console.log(`Refreshing display, ${iflow.messages.length} messages remaining`);
+          console.log(`Refreshing display to show ${result.successCount} resent messages in green`);
           showFailedMessages(iflow, data, container);
         }
       } catch (error) {
@@ -1867,72 +2467,52 @@
     return Array.from(summary.values()).sort((a, b) => a.iFlowName.localeCompare(b.iFlowName));
   }
 
-  // ============ STORAGE FUNCTIONS FOR PAYLOADS ============
+  // ============ STORAGE FUNCTIONS FOR PAYLOADS (IndexedDB) ============
 
   async function getAllSavedPayloads() {
     try {
-      const result = await safeStorageGet(['resenderPayloads']);
-      return result.resenderPayloads || {};
+      return await flowFixerDB.getAllPayloads();
     } catch (error) {
-      console.error('Error getting saved payloads:', error);
+      console.error('Error getting saved payloads from IndexedDB:', error);
       return {};
     }
   }
 
   async function savePayloadsForIflow(iflowSymbolicName, messages) {
     try {
-      const allPayloads = await getAllSavedPayloads();
-      allPayloads[iflowSymbolicName] = messages;
-      
-      await new Promise((resolve, reject) => {
-        chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve();
-          }
-        });
-      });
-      
-      console.log(`Saved ${messages.length} payloads for iFlow: ${iflowSymbolicName}`);
+      await flowFixerDB.savePayloads(iflowSymbolicName, messages);
     } catch (error) {
-      console.error('Error saving payloads:', error);
+      console.error('Error saving payloads to IndexedDB:', error);
       throw error;
     }
   }
 
-  async function deleteResentMessagesFromStorage(iflowName, messageGuids) {
+  async function markMessagesAsResent(iflowName, messageGuids) {
     try {
-      // Get all saved payloads
-      const allPayloads = await getAllSavedPayloads();
-      const iflowPayloads = allPayloads[iflowName] || [];
+      const iflowPayloads = await flowFixerDB.getPayloads(iflowName);
       
-      // Filter out successfully resent messages
-      const remainingPayloads = iflowPayloads.filter(p => !messageGuids.includes(p.messageGuid));
+      console.log(`Marking ${messageGuids.length} messages as successfully resent in IndexedDB`);
       
-      console.log(`Deleting ${messageGuids.length} successfully resent messages from storage`);
-      console.log(`Before: ${iflowPayloads.length} messages, After: ${remainingPayloads.length} messages`);
-      
-      // Update storage
-      allPayloads[iflowName] = remainingPayloads;
-      
-      await new Promise((resolve, reject) => {
-        chrome.storage.local.set({ resenderPayloads: allPayloads }, () => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve();
-          }
-        });
+      // Mark messages as resent in payloads
+      iflowPayloads.forEach(payload => {
+        if (messageGuids.includes(payload.messageGuid)) {
+          payload.resentSuccessfully = true;
+          payload.resentAt = Date.now();
+        }
       });
       
-      // Invalidate cache so counts are recalculated on next load
-      await new Promise((resolve) => {
-        chrome.storage.local.remove(['resenderCachedData', 'resenderCacheTimestamp'], resolve);
-      });
-      console.log(`✓ Deleted ${messageGuids.length} messages from storage and invalidated cache`);
+      // Save updated payloads back to IndexedDB
+      await flowFixerDB.savePayloads(iflowName, iflowPayloads);
+      
+      // Add to permanent resent history (stored forever)
+      await flowFixerDB.addMultipleToResentHistory(messageGuids, iflowName);
+      
+      // Invalidate cache so it refreshes with updated data
+      await flowFixerDB.deleteCache('resenderCachedData');
+      
+      console.log(`✓ Marked ${messageGuids.length} messages as resent in IndexedDB and added to permanent history`);
     } catch (error) {
-      console.error('Error deleting messages from storage:', error);
+      console.error('Error marking messages as resent in IndexedDB:', error);
     }
   }
 
@@ -2238,27 +2818,26 @@
       .cpi-lite-panel{position:fixed; inset:auto 0 0 auto; top:64px; right:16px; width:min(860px, 92vw); height:calc(100vh - 80px); background:#fff; color:#1b1b1b; box-shadow:0 6px 24px rgba(0,0,0,.2); border-radius:8px; display:flex; flex-direction:column; z-index:2147483000;}
       .cpi-lite-dark .cpi-lite-panel{background:#1c2834; color:#eaecef;}
       #cpi-lite-page-root{ height:100%; display:flex; flex-direction:column; }
-      .cpi-lite-header{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:linear-gradient(135deg, #4A90E2 0%, #5BA3F5 100%); color:#fff; border-radius:8px 8px 0 0;}
-      .cpi-lite-dark .cpi-lite-header{background:linear-gradient(135deg, #2C5F8D 0%, #3A7BC8 100%);}
+      .cpi-lite-header{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:linear-gradient(135deg, #051747 0%, #081F62 100%); color:#fff; border-radius:8px 8px 0 0;}
+      .cpi-lite-dark .cpi-lite-header{background:linear-gradient(135deg, #030d2a 0%, #051747 100%);}
       .cpi-lite-title{font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;}
-      .cpi-lite-title::before{content:'🔧'; font-size:18px;}
       .cpi-lite-close{border:none; background:rgba(255,255,255,0.2); color:#fff; cursor:pointer; font-size:18px; width:28px; height:28px; border-radius:4px; display:flex; align-items:center; justify-content:center;}
       .cpi-lite-close:hover{background:rgba(255,255,255,0.3);}
       .cpi-lite-body{padding:12px; overflow:auto; height:100%; flex:1; background:#f8fbff;}
       .cpi-lite-table{border-collapse:collapse; width:100%; background:#fff; border-radius:6px; overflow:hidden;}
-      .cpi-lite-table th,.cpi-lite-table td{border-bottom:1px solid #e3f2fd; padding:10px; text-align:left}
-      .cpi-lite-table th{background:linear-gradient(to bottom, #e3f2fd 0%, #d1e9ff 100%); color:#1565c0; font-weight:600; position:sticky; top:0; z-index:1}
+      .cpi-lite-table th,.cpi-lite-table td{border-bottom:1px solid #e8eef7; padding:10px; text-align:left}
+      .cpi-lite-table th{background:linear-gradient(to bottom, #e8eef7 0%, #d4e0f0 100%); color:#051747; font-weight:600; position:sticky; top:0; z-index:1}
       .cpi-lite-count{ text-align:right }
       .cpi-lite-ok{ color:#2e7d32; font-weight:600 }
       .cpi-lite-fail{ color:#d32f2f; font-weight:600 }
       .cpi-lite-nav-btn{ display:flex; align-items:center; gap:8px; padding:8px 10px; margin:6px 8px; border-radius:6px; cursor:pointer; user-select:none;}
-      .cpi-lite-nav-btn:hover{ background:rgba(74,144,226,.1) }
+      .cpi-lite-nav-btn:hover{ background:rgba(5,23,71,.1) }
       .cpi-lite-hidden{ display:none !important }
       .cpi-lite-controls{ display:flex; gap:12px; align-items:center; margin:12px 0; padding:12px; background:#fff; border-radius:6px; box-shadow:0 2px 4px rgba(0,0,0,.05); }
-      .cpi-lite-input{ padding:8px 10px; border:2px solid #bbdefb; border-radius:6px; width:110px; transition:border-color 0.2s; }
-      .cpi-lite-input:focus{ border-color:#4A90E2; outline:none; }
-      .cpi-lite-btn{ padding:8px 16px; border:none; border-radius:6px; background:linear-gradient(135deg, #4A90E2 0%, #5BA3F5 100%); color:#fff; cursor:pointer; font-weight:500; transition:transform 0.1s, box-shadow 0.2s; box-shadow:0 2px 4px rgba(74,144,226,.3); }
-      .cpi-lite-btn:hover{ transform:translateY(-1px); box-shadow:0 4px 8px rgba(74,144,226,.4); }
+      .cpi-lite-input{ padding:8px 10px; border:2px solid #b3c5e6; border-radius:6px; width:110px; transition:border-color 0.2s; }
+      .cpi-lite-input:focus{ border-color:#051747; outline:none; }
+      .cpi-lite-btn{ padding:8px 16px; border:none; border-radius:6px; background:linear-gradient(135deg, #051747 0%, #081F62 100%); color:#fff; cursor:pointer; font-weight:500; transition:transform 0.1s, box-shadow 0.2s; box-shadow:0 2px 4px rgba(5,23,71,.3); }
+      .cpi-lite-btn:hover{ transform:translateY(-1px); box-shadow:0 4px 8px rgba(5,23,71,.4); }
       .cpi-lite-btn:active{ transform:translateY(0); }
       .cpi-lite-btn:disabled{ opacity:.5; cursor:not-allowed; transform:none; }
       .cpi-lite-btn.success{ background:linear-gradient(135deg, #2e7d32 0%, #43a047 100%); box-shadow:0 2px 4px rgba(46,125,50,.3); }
@@ -2268,19 +2847,19 @@
       .cpi-lite-btn.warning{ background:linear-gradient(135deg, #f57c00 0%, #ff9800 100%); box-shadow:0 2px 4px rgba(245,124,0,.3); }
       .cpi-lite-btn.warning:hover{ box-shadow:0 4px 8px rgba(245,124,0,.4); }
       .cpi-lite-pager{ display:flex; gap:8px; align-items:center; margin:10px 0 }
-      .cpi-lite-link{ color:#4A90E2; cursor:pointer; user-select:none; font-weight:500; }
-      .cpi-lite-link:hover{ color:#2C5F8D; text-decoration:underline; }
-      .cpi-lite-back{ padding:8px 14px; border:2px solid #bbdefb; border-radius:6px; background:#fff; color:#4A90E2; cursor:pointer; margin-right:8px; font-weight:500; transition:all 0.2s; }
-      .cpi-lite-back:hover{ background:#e3f2fd; border-color:#4A90E2; }
+      .cpi-lite-link{ color:#051747; cursor:pointer; user-select:none; font-weight:500; }
+      .cpi-lite-link:hover{ color:#030d2a; text-decoration:underline; }
+      .cpi-lite-back{ padding:8px 14px; border:2px solid #b3c5e6; border-radius:6px; background:#fff; color:#051747; cursor:pointer; margin-right:8px; font-weight:500; transition:all 0.2s; }
+      .cpi-lite-back:hover{ background:#e8eef7; border-color:#051747; }
       .cpi-lite-checkbox{ margin:0 8px 0 0; cursor:pointer; width:18px; height:18px; }
-      .cpi-lite-dialog{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.2); z-index:2147483100; min-width:400px; border-top:4px solid #4A90E2; }
-      .cpi-lite-dark .cpi-lite-dialog{ background:#1c2834; color:#eaecef; border-top-color:#5BA3F5; }
+      .cpi-lite-dialog{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.2); z-index:2147483100; min-width:400px; border-top:4px solid #051747; }
+      .cpi-lite-dark .cpi-lite-dialog{ background:#1c2834; color:#eaecef; border-top-color:#081F62; }
       .cpi-lite-dialog-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2147483099; backdrop-filter:blur(2px); }
-      .cpi-lite-dialog input{ width:100%; padding:10px; margin:8px 0; border:2px solid #bbdefb; border-radius:6px; box-sizing:border-box; transition:border-color 0.2s; }
-      .cpi-lite-dialog input:focus{ border-color:#4A90E2; outline:none; }
+      .cpi-lite-dialog input{ width:100%; padding:10px; margin:8px 0; border:2px solid #b3c5e6; border-radius:6px; box-sizing:border-box; transition:border-color 0.2s; }
+      .cpi-lite-dialog input:focus{ border-color:#051747; outline:none; }
       .cpi-lite-dialog-buttons{ display:flex; gap:8px; justify-content:flex-end; margin-top:16px }
-      .cpi-lite-select-all{ margin-right:8px; padding:8px 16px; border:2px solid #bbdefb; border-radius:6px; background:#fff; color:#4A90E2; cursor:pointer; font-weight:500; transition:all 0.2s; }
-      .cpi-lite-select-all:hover{ background:#e3f2fd; border-color:#4A90E2; }
+      .cpi-lite-select-all{ margin-right:8px; padding:8px 16px; border:2px solid #b3c5e6; border-radius:6px; background:#fff; color:#051747; cursor:pointer; font-weight:500; transition:all 0.2s; }
+      .cpi-lite-select-all:hover{ background:#e8eef7; border-color:#051747; }
     `;
     document.head.appendChild(style);
   }
@@ -2409,7 +2988,7 @@
       showAuthDialogForResender(async (url, username, password, apiUrl)=>{
         try{
           // Check if we have cached data less than 15 minutes old
-          const cachedData = await safeStorageGet(['resenderCachedData', 'resenderCacheTimestamp']);
+          const cachedData = await getCacheData();
           const now = Date.now();
           const cacheAge = cachedData.resenderCacheTimestamp ? (now - cachedData.resenderCacheTimestamp) : Infinity;
           const fifteenMinutes = 15 * 60 * 1000;
@@ -2432,15 +3011,10 @@
             // Fetch fresh data
             status.textContent = 'Fetching failed messages (today)...';
             console.log('Cache expired or not found, fetching fresh data...');
-            data = await fetchMessageProcessingLogs(username, password, apiUrl);
+            data = await fetchMessageProcessingLogs(username, password, apiUrl, 1);
             
             // Save to cache with timestamp
-            await new Promise((resolve) => {
-              chrome.storage.local.set({ 
-                resenderCachedData: data,
-                resenderCacheTimestamp: Date.now()
-              }, resolve);
-            });
+            await saveCacheData(data);
             console.log('✓ Data cached with timestamp');
             
             status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
@@ -2612,7 +3186,7 @@
       showAuthDialogForResender(async (url, username, password, apiUrl)=>{
         try{
           // Check if we have cached data less than 15 minutes old
-          const cachedData = await safeStorageGet(['resenderCachedData', 'resenderCacheTimestamp']);
+          const cachedData = await getCacheData();
           const now = Date.now();
           const cacheAge = cachedData.resenderCacheTimestamp ? (now - cachedData.resenderCacheTimestamp) : Infinity;
           const fifteenMinutes = 15 * 60 * 1000;
@@ -2635,15 +3209,10 @@
             // Fetch fresh data
             status.textContent = 'Fetching failed messages (today)...';
             console.log('Cache expired or not found, fetching fresh data...');
-            data = await fetchMessageProcessingLogs(username, password, apiUrl);
+            data = await fetchMessageProcessingLogs(username, password, apiUrl, 1);
             
             // Save to cache with timestamp
-            await new Promise((resolve) => {
-              chrome.storage.local.set({ 
-                resenderCachedData: data,
-                resenderCacheTimestamp: Date.now()
-              }, resolve);
-            });
+            await saveCacheData(data);
             console.log('✓ Data cached with timestamp');
             
             status.textContent = `Found ${data.iflowSummary.length} iFlows with failed messages`;
@@ -2753,7 +3322,7 @@
     const savedData = await safeStorageGet(['resenderUsername', 'resenderPassword']);
     
     if (!savedData.resenderUsername || !savedData.resenderPassword) {
-      alert('No saved credentials found. Please configure resender interface first by clicking "Resender Interface" button.');
+      await showModal(`No saved credentials found. Please configure resender interface first by clicking "Resender Interface" button.`);
       return;
     }
     
@@ -3490,12 +4059,12 @@ ${cleanedPayload}
       selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
     };
 
-    resendBtn.addEventListener('click', ()=>{
+    resendBtn.addEventListener('click', async ()=>{
       const selected = Array.from(root.querySelectorAll('.cpi-lite-checkbox:checked'))
         .map(cb => messages.find(m => m.id === cb.dataset.messageId))
         .filter(Boolean);
       if (selected.length === 0){
-        alert('Please select at least one message');
+        await showModal(`Please select at least one message`);
         return;
       }
       confirmResend(async (username, password)=>{
@@ -3654,12 +4223,12 @@ ${cleanedPayload}
       selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
     };
 
-    resendBtn.addEventListener('click', ()=>{
+    resendBtn.addEventListener('click', async ()=>{
       const selected = Array.from(root.querySelectorAll('.cpi-lite-checkbox:checked'))
         .map(cb => messages.find(m => m.id === cb.dataset.messageId))
         .filter(Boolean);
       if (selected.length === 0){
-        alert('Please select at least one message');
+        await showModal(`Please select at least one message`);
         return;
       }
       confirmResend(async (username, password)=>{
@@ -3829,12 +4398,12 @@ ${cleanedPayload}
       selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
     };
 
-    resendBtn.addEventListener('click', ()=>{
+    resendBtn.addEventListener('click', async ()=>{
       const selected = Array.from(root.querySelectorAll('.cpi-lite-checkbox:checked'))
         .map(cb => messages.find(m => m.id === cb.dataset.messageId))
         .filter(Boolean);
       if (selected.length === 0){
-        alert('Please select at least one message');
+        await showModal(`Please select at least one message`);
         return;
       }
       confirmResend(async (username, password)=>{

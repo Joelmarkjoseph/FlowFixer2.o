@@ -54,6 +54,7 @@
       ],
       "js": [
         "lib/xmlToJson/xmlToJson.js",
+        "indexedDBHelper.js",
         "resender_functions.js",
         "resender_ui.js",
         "contentScript.js"

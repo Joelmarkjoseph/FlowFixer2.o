@@ -536,6 +536,27 @@ class FlowFixerDB {
   }
 
   /**
+   * Get all resent history records (full data)
+   */
+  async getAllResentHistory() {
+    await this.ensureDB();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([STORES.RESENT_HISTORY], 'readonly');
+      const store = transaction.objectStore(STORES.RESENT_HISTORY);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        resolve(request.result || []);
+      };
+
+      request.onerror = () => {
+        console.error('Error getting all resent history:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
    * Clear resent history (optional - for maintenance)
    */
   async clearResentHistory() {

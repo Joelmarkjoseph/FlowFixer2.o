@@ -1063,11 +1063,28 @@
       console.log('=== MESSAGE PROCESSING LOGS ===');
       console.log('Total logs fetched:', logs.length);
       
-      // Get resent message GUIDs for marking (not filtering)
-      const resentGuids = await flowFixerDB.getAllResentMessageGuids();
-      const resentGuidsSet = new Set(resentGuids);
+      // Get resent message GUIDs from both IndexedDB and Supabase
+      let resentGuids = await flowFixerDB.getAllResentMessageGuids();
       
-      console.log(`Found ${resentGuids.length} resent message GUIDs in IndexedDB (will mark as green)`);
+      // Fetch from Supabase if available
+      try {
+        const savedData = await safeStorageGet(['resenderCompanyCode']);
+        const companyCode = savedData.resenderCompanyCode;
+        
+        if (companyCode && typeof supabaseHelper !== 'undefined') {
+          console.log('Fetching resent statuses from Supabase...');
+          const supabaseGuids = await supabaseHelper.getResentMessageGuids(companyCode);
+          console.log(`✓ Fetched ${supabaseGuids.length} resent messages from Supabase`);
+          
+          // Merge with local data
+          resentGuids = [...new Set([...resentGuids, ...supabaseGuids])];
+        }
+      } catch (supabaseError) {
+        console.error('Failed to fetch from Supabase (non-critical):', supabaseError);
+      }
+      
+      const resentGuidsSet = new Set(resentGuids);
+      console.log(`Found ${resentGuids.length} total resent message GUIDs (will mark as green)`);
       
       console.log('Logs:', logs);
       console.table(logs);
@@ -1442,7 +1459,8 @@
     // Build dialog HTML based on environment
     let dialogHTML = `
       <h3 style="margin:0 0 16px">Resender Interface Authentication (${environmentName})</h3>
-      <p style="margin:0 0 12px; font-size:13px; color:#666;">Please enter your credentials to access the resender interface</p>`;
+      <p style="margin:0 0 12px; font-size:13px; color:#666;">Please enter your credentials to access the resender interface</p>
+      <label>Company Code: <input type="text" id="cpi-lite-auth-companycode" placeholder="Your company code (e.g., ACME)" value="${savedData.resenderCompanyCode || ''}" style="font-family:monospace; font-size:12px; text-transform:uppercase;" /></label>`;
     
     // For Cloud Foundry, add API URL field
     if (!isNEO) {
@@ -1520,6 +1538,7 @@
     });
     
     dialog.querySelector('#cpi-lite-auth-confirm').addEventListener('click', async ()=>{
+      const companyCode = dialog.querySelector('#cpi-lite-auth-companycode').value.trim().toUpperCase();
       const username = dialog.querySelector('#cpi-lite-auth-username').value.trim();
       const password = dialog.querySelector('#cpi-lite-auth-password').value;
       const apiUrlField = dialog.querySelector('#cpi-lite-auth-apiurl');
@@ -1528,6 +1547,11 @@
       const clientId = clientIdField ? clientIdField.value.trim() : null;
       const clientSecretField = dialog.querySelector('#cpi-lite-auth-clientsecret');
       const clientSecret = clientSecretField ? clientSecretField.value : null;
+      
+      if (!companyCode){
+        await showModal(`Please enter your company code`);
+        return;
+      }
       
       if (!username){
         await showModal(`Please enter your SAP username`);
@@ -1561,6 +1585,7 @@
           console.log('Extension context invalidated, credentials not saved');
         } else {
           const dataToSave = {
+            resenderCompanyCode: companyCode,
             resenderUsername: username,
             resenderPassword: password
           };
@@ -1586,6 +1611,16 @@
       }
       
       closeDialog();
+      
+      // Sync all local history to Supabase after successful auth
+      setTimeout(async () => {
+        try {
+          await syncAllLocalToSupabase(companyCode, username);
+        } catch (syncError) {
+          console.error('Background sync failed:', syncError);
+        }
+      }, 1000); // Delay to let UI load first
+      
       onConfirm(null, username, password, apiUrl); // Pass apiUrl as 4th parameter
     });
 
@@ -1597,8 +1632,17 @@
 
   // ============ RESENDER UI FUNCTIONS ============
 
+  // Global variable to store auto-refresh timer
+  let autoRefreshTimer = null;
+
   function showIflowOverview(data, container) {
     ensureStyles();
+    
+    // Clear any existing auto-refresh timer
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = null;
+    }
     
     // Clear container and create new content
     container.innerHTML = '';
@@ -1621,11 +1665,33 @@
     const back = document.createElement('button');
     back.className = 'cpi-lite-back';
     back.textContent = '← Back';
-    back.onclick = () => { location.reload(); };
+    back.onclick = () => { 
+      // Clear auto-refresh timer
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+        console.log('Auto-refresh timer cleared');
+      }
+      location.reload(); 
+    };
     
     const title = document.createElement('div');
     title.className = 'cpi-lite-title';
-    title.textContent = 'FlowFixer - Failed Messages Overview (Today)';
+    title.style.display = 'flex';
+    title.style.alignItems = 'center';
+    title.style.gap = '12px';
+    
+    const titleText = document.createElement('span');
+    titleText.textContent = 'FlowFixer - Failed Messages Overview (Today)';
+    
+    const lastUpdated = document.createElement('span');
+    lastUpdated.id = 'flowfixer-last-updated';
+    lastUpdated.style.cssText = 'font-size: 12px; font-weight: 400; color: rgba(255,255,255,0.8);';
+    const now = new Date();
+    lastUpdated.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+    
+    title.appendChild(titleText);
+    title.appendChild(lastUpdated);
     
     leftSection.appendChild(back);
     leftSection.appendChild(title);
@@ -1636,131 +1702,7 @@
     rightSection.style.gap = '8px';
     rightSection.style.alignItems = 'center';
     
-    // Export button
-    const exportBtn = document.createElement('button');
-    exportBtn.className = 'cpi-lite-btn';
-    exportBtn.style.cssText = `
-      font-size: 13px;
-      padding: 6px 12px;
-      background: white;
-      color: black;
-      border: 2px solid #051747;
-      border-radius: 8px;
-      font-family: var(--sapFontSemiboldDuplexFamily, 'Segoe UI Semibold', Arial, sans-serif);
-      cursor: pointer;
-    `;
-    exportBtn.textContent = 'Export History';
-    exportBtn.title = 'Export resent message history for shift handover';
-    exportBtn.onclick = async () => {
-      try {
-        exportBtn.disabled = true;
-        exportBtn.textContent = 'Exporting...';
-        
-        const exportData = await flowFixerDB.exportResentHistory();
-        
-        // Create JSON file
-        const jsonStr = JSON.stringify(exportData, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        
-        // Create download link
-        const a = document.createElement('a');
-        a.href = url;
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-        a.download = `FlowFixer-ResentHistory-${timestamp}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        exportBtn.textContent = 'Exported!';
-        setTimeout(() => {
-          exportBtn.textContent = 'Export History';
-          exportBtn.disabled = false;
-        }, 2000);
-        
-        console.log(`✓ Exported ${exportData.totalRecords} resent history records`);
-      } catch (error) {
-        alert('Failed to export history: ' + error.message);
-        exportBtn.textContent = 'Export History';
-        exportBtn.disabled = false;
-      }
-    };
-    
-    // Import button
-    const importBtn = document.createElement('button');
-    importBtn.className = 'cpi-lite-btn';
-    importBtn.style.cssText = `
-      font-size: 13px;
-      padding: 6px 12px;
-      background: white;
-      color: black;
-      border: 2px solid #051747;
-      border-radius: 8px;
-      font-family: var(--sapFontSemiboldDuplexFamily, 'Segoe UI Semibold', Arial, sans-serif);
-      cursor: pointer;
-    `;
-    importBtn.textContent = 'Import History';
-    importBtn.title = 'Import resent message history from shift handover';
-    importBtn.onclick = () => {
-      // Create file input
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = '.json';
-      fileInput.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        try {
-          importBtn.disabled = true;
-          importBtn.textContent = 'Importing...';
-          
-          const text = await file.text();
-          const importData = JSON.parse(text);
-          
-          // Ask user for import mode
-          const mode = await showConfirm(
-            `Import ${importData.totalRecords} records.\n\n` +
-            `Click OK to MERGE with existing data.\n` +
-            `Click Cancel to REPLACE all existing data.`
-          ) ? 'merge' : 'replace';
-          
-          const result = await flowFixerDB.importResentHistory(importData, mode);
-          
-          // Build detailed message
-          let message = `Import complete!\n\n`;
-          message += `New records added: ${result.imported}\n`;
-          if (result.updated > 0) {
-            message += `Existing records updated: ${result.updated}\n`;
-          }
-          if (result.skipped > 0) {
-            message += `Records skipped: ${result.skipped}\n`;
-          }
-          message += `--------------------\n`;
-          message += `Total processed: ${result.total}\n`;
-          message += `Mode: ${mode.toUpperCase()}`;
-          
-          if (result.updated > 0) {
-            message += `\n\n💡 ${result.updated} duplicate(s) were updated with new data.`;
-          }
-          
-          alert(message);
-          
-          importBtn.textContent = 'Imported!';
-          setTimeout(() => {
-            importBtn.textContent = 'Import History';
-            importBtn.disabled = false;
-          }, 2000);
-          
-          console.log(`✓ Import summary: ${result.imported} new, ${result.updated} updated, ${result.skipped} skipped`);
-        } catch (error) {
-          alert('Failed to import history: ' + error.message);
-          importBtn.textContent = 'Import History';
-          importBtn.disabled = false;
-        }
-      };
-      fileInput.click();
-    };
+    // Export/Import buttons removed - Supabase handles sync automatically
     
     // Days back selector
     const daysBackContainer = document.createElement('div');
@@ -1843,8 +1785,6 @@
       }
     };
     
-    rightSection.appendChild(exportBtn);
-    rightSection.appendChild(importBtn);
     rightSection.appendChild(daysBackContainer);
     rightSection.appendChild(refreshBtn);
     
@@ -1985,6 +1925,45 @@
     }
     
     container.appendChild(page);
+    
+    // Start auto-refresh timer (5 minutes)
+    console.log('Starting auto-refresh timer (5 minutes)');
+    autoRefreshTimer = setInterval(async () => {
+      try {
+        console.log('Auto-refresh: Fetching updated messages...');
+        
+        // Get saved credentials
+        const savedData = await safeStorageGet(['resenderUsername', 'resenderPassword', 'resenderApiUrl']);
+        const username = savedData.resenderUsername;
+        const password = savedData.resenderPassword;
+        const apiUrl = savedData.resenderApiUrl;
+        
+        if (!username || !password) {
+          console.log('Auto-refresh: No credentials, skipping');
+          return;
+        }
+        
+        // Fetch fresh data
+        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl, 1);
+        
+        // Save to cache
+        await saveCacheData(freshData);
+        
+        // Refresh the display
+        console.log('Auto-refresh: Updating display with fresh data');
+        showIflowOverview(freshData, container);
+        
+        // Update the last updated timestamp
+        const lastUpdatedElement = document.getElementById('flowfixer-last-updated');
+        if (lastUpdatedElement) {
+          const now = new Date();
+          lastUpdatedElement.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        }
+        
+      } catch (error) {
+        console.error('Auto-refresh failed:', error);
+      }
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
   }
 
   async function showFailedMessages(iflow, data, container) {
@@ -2452,6 +2431,71 @@
     return Array.from(summary.values()).sort((a, b) => a.iFlowName.localeCompare(b.iFlowName));
   }
 
+  // ============ SUPABASE SYNC FUNCTIONS ============
+  
+  /**
+   * Sync all messages from past 15 days to Supabase with their statuses
+   */
+  async function syncAllLocalToSupabase(companyCode, username) {
+    try {
+      if (!companyCode || typeof supabaseHelper === 'undefined') {
+        console.log('Supabase sync skipped: No company code or helper not available');
+        return;
+      }
+      
+      console.log('Syncing all messages from past 15 days to Supabase...');
+      
+      // Get saved credentials
+      const savedData = await safeStorageGet(['resenderPassword', 'resenderApiUrl']);
+      const password = savedData.resenderPassword;
+      const apiUrl = savedData.resenderApiUrl;
+      
+      if (!password) {
+        console.log('No password available for fetching messages');
+        return;
+      }
+      
+      // Fetch all failed messages from past 15 days
+      const messagesData = await fetchMessageProcessingLogs(username, password, apiUrl, 15);
+      const allMessages = messagesData.allMessages || [];
+      
+      console.log(`Fetched ${allMessages.length} messages from past 15 days`);
+      
+      if (allMessages.length === 0) {
+        console.log('No messages to sync');
+        return;
+      }
+      
+      // Get local resent history to determine status
+      const localResentGuids = await flowFixerDB.getAllResentMessageGuids();
+      const resentGuidsSet = new Set(localResentGuids);
+      
+      // Convert all messages to Supabase format with correct status
+      const messages = allMessages.map(msg => ({
+        companyCode: companyCode,
+        messageGuid: msg.MessageGuid,
+        iflowName: msg.IntegrationFlowName,
+        status: resentGuidsSet.has(msg.MessageGuid) ? 'Resent' : 'Failed',
+        resentAt: resentGuidsSet.has(msg.MessageGuid) ? new Date().toISOString() : null,
+        resentBy: resentGuidsSet.has(msg.MessageGuid) ? username : null
+      }));
+      
+      // Sync to Supabase in batches (to avoid overwhelming the API)
+      const batchSize = 50;
+      for (let i = 0; i < messages.length; i += batchSize) {
+        const batch = messages.slice(i, i + batchSize);
+        await supabaseHelper.upsertMultipleResentMessages(batch);
+        console.log(`✓ Synced batch ${Math.floor(i / batchSize) + 1} (${batch.length} messages)`);
+      }
+      
+      console.log(`✓ Synced ${messages.length} messages from past 15 days to Supabase`);
+      
+    } catch (error) {
+      console.error('Failed to sync to Supabase:', error);
+      throw error;
+    }
+  }
+
   // ============ STORAGE FUNCTIONS FOR PAYLOADS (IndexedDB) ============
 
   async function getAllSavedPayloads() {
@@ -2496,6 +2540,32 @@
       await flowFixerDB.deleteCache('resenderCachedData');
       
       console.log(`✓ Marked ${messageGuids.length} messages as resent in IndexedDB and added to permanent history`);
+      
+      // Sync to Supabase
+      try {
+        const savedData = await safeStorageGet(['resenderCompanyCode', 'resenderUsername']);
+        const companyCode = savedData.resenderCompanyCode;
+        const username = savedData.resenderUsername;
+        
+        if (companyCode && typeof supabaseHelper !== 'undefined') {
+          const messages = messageGuids.map(guid => ({
+            companyCode: companyCode,
+            messageGuid: guid,
+            iflowName: iflowName,
+            status: 'Resent',
+            resentAt: new Date().toISOString(),
+            resentBy: username || companyCode
+          }));
+          
+          await supabaseHelper.upsertMultipleResentMessages(messages);
+          console.log(`✓ Synced ${messageGuids.length} messages to Supabase`);
+        } else {
+          console.log('Supabase sync skipped: No company code or Supabase helper not available');
+        }
+      } catch (supabaseError) {
+        console.error('Failed to sync to Supabase (non-critical):', supabaseError);
+      }
+      
     } catch (error) {
       console.error('Error marking messages as resent in IndexedDB:', error);
     }

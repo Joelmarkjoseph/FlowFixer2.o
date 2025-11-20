@@ -1632,16 +1632,21 @@
 
   // ============ RESENDER UI FUNCTIONS ============
 
-  // Global variable to store auto-refresh timer
-  let autoRefreshTimer = null;
+  // Global variables to store auto-refresh timers
+  let autoRefreshTimer = null; // Full refresh (5 min)
+  let statusSyncTimer = null;  // Status sync only (2 min)
 
   function showIflowOverview(data, container) {
     ensureStyles();
     
-    // Clear any existing auto-refresh timer
+    // Clear any existing auto-refresh timers
     if (autoRefreshTimer) {
       clearInterval(autoRefreshTimer);
       autoRefreshTimer = null;
+    }
+    if (statusSyncTimer) {
+      clearInterval(statusSyncTimer);
+      statusSyncTimer = null;
     }
     
     // Clear container and create new content
@@ -1666,11 +1671,16 @@
     back.className = 'cpi-lite-back';
     back.textContent = '← Back';
     back.onclick = () => { 
-      // Clear auto-refresh timer
+      // Clear auto-refresh timers
       if (autoRefreshTimer) {
         clearInterval(autoRefreshTimer);
         autoRefreshTimer = null;
         console.log('Auto-refresh timer cleared');
+      }
+      if (statusSyncTimer) {
+        clearInterval(statusSyncTimer);
+        statusSyncTimer = null;
+        console.log('Status sync timer cleared');
       }
       location.reload(); 
     };
@@ -1964,6 +1974,65 @@
         console.error('Auto-refresh failed:', error);
       }
     }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    // Start status sync timer (2 minutes) - lighter refresh, only updates statuses
+    console.log('Starting status sync timer (2 minutes)');
+    statusSyncTimer = setInterval(async () => {
+      try {
+        console.log('Status sync: Fetching updated statuses from Supabase...');
+        
+        // Get saved company code
+        const savedData = await safeStorageGet(['resenderCompanyCode']);
+        const companyCode = savedData.resenderCompanyCode;
+        
+        if (!companyCode || typeof supabaseHelper === 'undefined') {
+          console.log('Status sync: No company code, skipping');
+          return;
+        }
+        
+        // Fetch latest statuses from Supabase
+        const supabaseGuids = await supabaseHelper.getResentMessageGuids(companyCode);
+        console.log(`✓ Status sync: Fetched ${supabaseGuids.length} resent messages from Supabase`);
+        
+        // Update the display without full refresh
+        // Find all table rows and update their styling based on new statuses
+        const resentGuidsSet = new Set(supabaseGuids);
+        const tableRows = document.querySelectorAll('.cpi-lite-table tbody tr');
+        
+        tableRows.forEach(row => {
+          const messageGuidCell = row.querySelector('td:nth-child(2)');
+          if (messageGuidCell) {
+            const messageGuid = messageGuidCell.textContent.trim();
+            const statusCell = row.querySelector('td:nth-child(6)');
+            
+            if (resentGuidsSet.has(messageGuid)) {
+              // Mark as resent (green)
+              row.style.backgroundColor = '#d4edda';
+              row.style.borderLeft = '4px solid #28a745';
+              if (statusCell) {
+                statusCell.textContent = 'Resent';
+                statusCell.style.color = '#28a745';
+                statusCell.style.fontWeight = '600';
+              }
+            } else {
+              // Keep as failed
+              row.style.backgroundColor = '';
+              row.style.borderLeft = '';
+              if (statusCell && statusCell.textContent === 'Resent') {
+                statusCell.textContent = 'FAILED';
+                statusCell.style.color = '';
+                statusCell.style.fontWeight = '';
+              }
+            }
+          }
+        });
+        
+        console.log('✓ Status sync: Updated UI with latest statuses');
+        
+      } catch (error) {
+        console.error('Status sync failed:', error);
+      }
+    }, 2 * 60 * 1000); // 2 minutes in milliseconds
   }
 
   async function showFailedMessages(iflow, data, container) {

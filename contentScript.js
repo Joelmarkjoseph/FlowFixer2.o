@@ -1000,7 +1000,7 @@
     }
   }
 
-  async function fetchMessageProcessingLogs(username, password, apiUrl, daysBack = 1) {
+  async function fetchMessageProcessingLogs(username, password, apiUrl, daysBack = 1, messagesCount = 50) {
     try {
       // Determine base URL
       let baseUrl;
@@ -1040,14 +1040,14 @@
       startDate.setHours(0, 0, 0, 0);
       const dateTimeStr = startDate.toISOString().replace(/\.\d{3}Z$/, '.000');
       
-      console.log(`Fetching failed messages from last ${daysBack} day(s)`);
+      console.log(`Fetching ${messagesCount} failed messages from last ${daysBack} day(s)`);
       console.log('Start time:', dateTimeStr, `(${daysBack} day(s) back)`);
       
-      // Build the MessageProcessingLogs URL with pagination (top 30)
+      // Build the MessageProcessingLogs URL with dynamic message count
       const select = '$select=MessageGuid,CorrelationId,ApplicationMessageId,PredecessorMessageGuid,ApplicationMessageType,LogStart,LogEnd,Sender,Receiver,IntegrationFlowName,Status,AlternateWebLink,LogLevel,CustomStatus,ArchivingStatus,ArchivingSenderChannelMessages,ArchivingReceiverChannelMessages,ArchivingLogAttachments,ArchivingPersistedMessages,TransactionId,PreviousComponentName,LocalComponentName,OriginComponentName,IntegrationArtifact';
       const filter = `$filter=Status eq 'FAILED' and LogStart ge datetime'${dateTimeStr}'`;
       const orderby = '$orderby=LogStart desc';
-      const top = '$top=15'; // Fetch only 15 most recent messages
+      const top = `$top=${messagesCount}`; // Fetch specified number of messages
       
       const url = `${baseUrl}/api/v1/MessageProcessingLogs?${select}&${filter}&${orderby}&${top}&$format=json`;
       
@@ -1108,64 +1108,40 @@
         };
         
         try {
-          // Fetch attachments for this message
+          // Fetch attachments metadata only (not payloads - lazy loading)
           const attachmentsUrl = `${baseUrl}/api/v1/MessageProcessingLogs('${messageGuid}')/Attachments?$format=json`;
-          console.log(`  Fetching attachments from: ${attachmentsUrl}`);
+          console.log(`  Fetching attachments metadata from: ${attachmentsUrl}`);
           
           const attachmentsResponse = await httpWithAuth('GET', attachmentsUrl, username, password, null, 'application/json');
           const attachmentsJson = JSON.parse(attachmentsResponse);
           const attachments = attachmentsJson.value || attachmentsJson.d?.results || [];
           
-          console.log(`  Found ${attachments.length} attachment(s)`);
+          console.log(`  Found ${attachments.length} attachment(s) - payloads will be fetched on demand`);
           
           if (attachments.length > 0) {
-            // For each attachment, fetch its payload
+            // Store attachment metadata only (no payload fetching yet)
             for (let j = 0; j < attachments.length; j++) {
               const attachment = attachments[j];
               const attachmentId = attachment.Id || attachment.ID;
               const attachmentName = attachment.Name || attachment.name || 'unknown';
               
-              console.log(`    [Attachment ${j + 1}/${attachments.length}] ID: ${attachmentId}, Name: ${attachmentName}`);
-              
-              try {
-                // Build payload URL - use integrationsuite domain for CF
-                let payloadUrl;
-                if (isNEO) {
-                  payloadUrl = `${baseUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
-                } else {
-                  // For Cloud Foundry, use integrationsuite domain
-                  const integrationsuiteUrl = baseUrl.replace(/\.it-cpi[^.]*\./, '.integrationsuite-trial.');
-                  payloadUrl = `${integrationsuiteUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
-                }
-                
-                console.log(`      Fetching payload from: ${payloadUrl}`);
-                
-                const payload = await httpWithAuth('GET', payloadUrl, username, password, null, 'application/octet-stream');
-                
-                console.log(`      ✓ Payload fetched (${payload.length} bytes)`);
-                console.log(`      Payload content:`, payload);
-                
-                // Store first payload as main payload
-                if (j === 0) {
-                  messageData.payload = payload;
-                }
-                
-                messageData.attachments.push({
-                  id: attachmentId,
-                  name: attachmentName,
-                  payload: payload
-                });
-                
-              } catch (payloadError) {
-                console.error(`      ✗ Failed to fetch payload:`, payloadError.message);
-              }
+              messageData.attachments.push({
+                id: attachmentId,
+                name: attachmentName,
+                payload: null // Will be fetched on demand when resending
+              });
             }
+            
+            // Mark that payload exists (for UI display)
+            messageData.hasPayload = true;
           } else {
             console.log(`  No attachments found for this message`);
+            messageData.hasPayload = false;
           }
           
         } catch (attachmentError) {
           console.error(`  ✗ Failed to fetch attachments:`, attachmentError.message);
+          messageData.hasPayload = false;
         }
         
         messagesWithPayloads.push(messageData);
@@ -1714,6 +1690,36 @@
     
     // Export/Import buttons removed - Supabase handles sync automatically
     
+    // Messages count selector
+    const messagesCountContainer = document.createElement('div');
+    messagesCountContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+    
+    const messagesCountLabel = document.createElement('label');
+    messagesCountLabel.style.cssText = 'font-size: 13px; color: white; font-weight: 500;';
+    messagesCountLabel.textContent = 'Messages:';
+    
+    const messagesCountInput = document.createElement('input');
+    messagesCountInput.type = 'number';
+    messagesCountInput.min = '10';
+    messagesCountInput.max = '500';
+    messagesCountInput.value = '50';
+    messagesCountInput.step = '10';
+    messagesCountInput.style.cssText = `
+      width: 70px;
+      padding: 6px 8px;
+      border: 2px solid white;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      background: white;
+      color: #051747;
+    `;
+    messagesCountInput.title = 'Number of messages to fetch at once (10-500)';
+    
+    messagesCountContainer.appendChild(messagesCountLabel);
+    messagesCountContainer.appendChild(messagesCountInput);
+    
     // Days back selector
     const daysBackContainer = document.createElement('div');
     daysBackContainer.style.cssText = 'display: flex; align-items: center; gap: 6px;';
@@ -1763,8 +1769,11 @@
         refreshBtn.disabled = true;
         refreshBtn.textContent = 'Fetching...';
         
-        // Get days back value
+        // Get messages count and days back values
+        const messagesCount = parseInt(messagesCountInput.value) || 50;
         const daysBack = parseInt(daysBackInput.value) || 1;
+        
+        console.log(`Manual fetch: ${messagesCount} messages from past ${daysBack} day(s)`);
         
         // Get saved credentials
         const savedData = await safeStorageGet(['resenderUsername', 'resenderPassword', 'resenderApiUrl']);
@@ -1779,8 +1788,8 @@
           return;
         }
         
-        // Fetch fresh data with days back parameter
-        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl, daysBack);
+        // Fetch fresh data with messages count and days back parameters
+        const freshData = await fetchMessageProcessingLogs(username, password, apiUrl, daysBack, messagesCount);
         
         // Save to cache
         await saveCacheData(freshData);
@@ -1795,6 +1804,7 @@
       }
     };
     
+    rightSection.appendChild(messagesCountContainer);
     rightSection.appendChild(daysBackContainer);
     rightSection.appendChild(refreshBtn);
     
@@ -2111,7 +2121,7 @@
       checkbox.type = 'checkbox';
       checkbox.className = 'message-checkbox';
       checkbox.dataset.messageGuid = msg.MessageGuid;
-      checkbox.disabled = !msg.payload || msg.resentSuccessfully; // Disable if no payload or already resent
+      checkbox.disabled = msg.resentSuccessfully; // Only disable if already resent
       tdCheck.appendChild(checkbox);
       
       const tdGuid = document.createElement('td');
@@ -2127,8 +2137,9 @@
       tdStart.textContent = msg.LogStart ? new Date(msg.LogStart).toLocaleString() : '-';
       
       const tdPayload = document.createElement('td');
-      tdPayload.textContent = msg.payload ? 'Yes' : 'No';
-      tdPayload.style.color = msg.payload ? 'green' : 'red';
+      tdPayload.textContent = (msg.hasPayload || msg.attachments?.length > 0) ? 'FOD' : 'No';
+      tdPayload.style.color = (msg.hasPayload || msg.attachments?.length > 0) ? 'green' : 'red';
+      tdPayload.title = (msg.hasPayload || msg.attachments?.length > 0) ? 'Fetched On Demand - payload will be loaded when resending' : 'No payload available';
       
       const tdStatus = document.createElement('td');
       if (msg.resentSuccessfully) {
@@ -2244,20 +2255,58 @@
       const iflowSymbolicName = firstMessage.IntegrationFlowName;
       console.log('iFlow symbolic name:', iflowSymbolicName);
       
-      // STEP 1: Load stored payloads from local storage
-      console.log('Loading payloads from storage...');
-      const allPayloads = await getAllSavedPayloads();
-      console.log('All saved iFlow names in storage:', Object.keys(allPayloads));
-      console.log('Looking for iFlow name:', iflowSymbolicName);
+      // STEP 1: Fetch payloads on demand for selected messages only (in parallel)
+      console.log(`Fetching payloads for ${selectedGuids.length} selected messages in parallel...`);
       
-      const savedPayloads = allPayloads[iflowSymbolicName] || [];
+      const payloadPromises = selectedGuids.map(async (messageGuid, index) => {
+        const message = allMessages.find(m => m.MessageGuid === messageGuid);
+        
+        if (!message) return null;
+        
+        console.log(`[${index + 1}/${selectedGuids.length}] Fetching payload for: ${messageGuid}`);
+        
+        try {
+          // Fetch attachments
+          const attachmentsUrl = `${baseUrl}/api/v1/MessageProcessingLogs('${messageGuid}')/Attachments?$format=json`;
+          const attachmentsResponse = await httpWithAuth('GET', attachmentsUrl, username, password, null, 'application/json');
+          const attachmentsJson = JSON.parse(attachmentsResponse);
+          const attachments = attachmentsJson.value || attachmentsJson.d?.results || [];
+          
+          if (attachments.length > 0) {
+            const attachment = attachments[0];
+            const attachmentId = attachment.Id || attachment.ID;
+            
+            // Build payload URL
+            let payloadUrl;
+            if (isNEO) {
+              payloadUrl = `${baseUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
+            } else {
+              const integrationsuiteUrl = baseUrl.replace(/\.it-cpi[^.]*\./, '.integrationsuite-trial.');
+              payloadUrl = `${integrationsuiteUrl}/api/v1/MessageProcessingLogAttachments('${attachmentId}')/$value`;
+            }
+            
+            // Fetch payload
+            const payload = await httpWithAuth('GET', payloadUrl, username, password, null, 'application/octet-stream');
+            console.log(`  ✓ Payload fetched (${payload.length} bytes)`);
+            
+            return {
+              messageGuid: messageGuid,
+              integrationFlowName: message.IntegrationFlowName,
+              payload: payload
+            };
+          }
+          return null;
+        } catch (error) {
+          console.error(`  ✗ Failed to fetch payload for ${messageGuid}:`, error);
+          return null;
+        }
+      });
       
-      console.log(`Found ${savedPayloads.length} saved payloads for iFlow: ${iflowSymbolicName}`);
+      // Wait for all payloads to be fetched in parallel
+      const payloadResults = await Promise.all(payloadPromises);
+      const savedPayloads = payloadResults.filter(p => p !== null);
       
-      if (savedPayloads.length === 0) {
-        console.error('No payloads found! Available iFlows:', Object.keys(allPayloads));
-        throw new Error('No saved payloads found. Please fetch payloads first.');
-      }
+      console.log(`✓ Fetched ${savedPayloads.length} payloads on demand (parallel fetch)`);
       
       // STEP 2: Determine base URL and credentials
       let serviceEndpointsBaseUrl;

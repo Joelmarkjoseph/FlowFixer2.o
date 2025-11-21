@@ -2100,10 +2100,16 @@
     const controls = document.createElement('div');
     controls.style.cssText = 'padding:12px; background:rgba(0,0,0,.03); margin:12px 0; border-radius:6px;';
     controls.innerHTML = `
-      <div style="display:flex; gap:12px; align-items:center;">
-        <button id="select-all-btn" class="cpi-lite-btn">Select All</button>
-        <button id="resend-btn" class="cpi-lite-btn" disabled>Resend Selected (0)</button>
-        <span id="resend-status" style="margin-left:8px; color:#666;"></span>
+      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between;">
+        <div style="display:flex; gap:12px; align-items:center;">
+          <button id="select-all-btn" class="cpi-lite-btn">Select All</button>
+          <button id="resend-btn" class="cpi-lite-btn" disabled>Resend Selected (0)</button>
+          <span id="resend-status" style="margin-left:8px; color:#666;"></span>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="sync-supabase-btn" class="cpi-lite-btn" style="background:#051747;">Sync Status</button>
+          <span id="sync-status" style="font-size:12px; color:#666;"></span>
+        </div>
       </div>
     `;
     
@@ -2256,6 +2262,93 @@
         resendBtn.disabled = false;
       }
     };
+    
+    // Sync button handler - manually sync statuses from Supabase
+    const syncSupabaseBtn = document.getElementById('sync-supabase-btn');
+    const syncStatus = document.getElementById('sync-status');
+    
+    if (syncSupabaseBtn) {
+      syncSupabaseBtn.onclick = async () => {
+        try {
+          syncSupabaseBtn.disabled = true;
+          syncStatus.textContent = 'Syncing...';
+          syncStatus.style.color = '#666';
+          
+          // Check if supabaseHelper is available
+          if (typeof supabaseHelper === 'undefined') {
+            syncStatus.textContent = 'Supabase not available';
+            syncStatus.style.color = '#dc3545';
+            setTimeout(() => { syncStatus.textContent = ''; }, 3000);
+            return;
+          }
+          
+          // Get company code
+          const savedData = await safeStorageGet(['resenderCompanyCode']);
+          const companyCode = savedData.resenderCompanyCode;
+          
+          if (!companyCode) {
+            syncStatus.textContent = 'No company code configured';
+            syncStatus.style.color = '#dc3545';
+            setTimeout(() => { syncStatus.textContent = ''; }, 3000);
+            return;
+          }
+          
+          // Fetch latest statuses from Supabase
+          const supabaseGuids = await supabaseHelper.getResentMessageGuids(companyCode);
+          console.log(`✓ Manual sync: Fetched ${supabaseGuids.length} resent messages from Supabase`);
+          
+          if (supabaseGuids.length === 0) {
+            syncStatus.textContent = 'No resent messages found';
+            syncStatus.style.color = '#666';
+            setTimeout(() => { syncStatus.textContent = ''; }, 3000);
+            return;
+          }
+          
+          // Update the display
+          const resentGuidsSet = new Set(supabaseGuids);
+          const tableRows = document.querySelectorAll('.cpi-lite-table tbody tr');
+          let updatedCount = 0;
+          
+          tableRows.forEach(row => {
+            const checkbox = row.querySelector('.message-checkbox');
+            if (checkbox && checkbox.dataset.messageGuid) {
+              const messageGuid = checkbox.dataset.messageGuid;
+              const statusCell = row.querySelector('td:nth-child(6)');
+              
+              if (resentGuidsSet.has(messageGuid)) {
+                // Mark as resent (green)
+                if (row.style.backgroundColor !== 'rgb(212, 237, 218)') {
+                  row.style.backgroundColor = '#d4edda';
+                  row.style.borderLeft = '4px solid #28a745';
+                  if (statusCell) {
+                    statusCell.textContent = 'Resent';
+                    statusCell.style.color = '#28a745';
+                    statusCell.style.fontWeight = '600';
+                  }
+                  // Disable checkbox for resent messages
+                  checkbox.disabled = true;
+                  updatedCount++;
+                }
+              }
+            }
+          });
+          
+          syncStatus.textContent = `✓ Synced (${updatedCount} updated)`;
+          syncStatus.style.color = '#28a745';
+          console.log(`✓ Manual sync: Updated ${updatedCount} rows`);
+          
+          setTimeout(() => { syncStatus.textContent = ''; }, 3000);
+          
+        } catch (error) {
+          console.error('Manual sync failed:', error);
+          syncStatus.textContent = '✗ Sync failed';
+          syncStatus.style.color = '#dc3545';
+          setTimeout(() => { syncStatus.textContent = ''; }, 3000);
+        } finally {
+          syncSupabaseBtn.disabled = false;
+        }
+      };
+    }
   }
 
   async function resendSelectedMessages(selectedGuids, allMessages, data) {

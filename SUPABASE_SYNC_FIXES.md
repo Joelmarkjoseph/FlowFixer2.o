@@ -98,6 +98,28 @@ console.log(`✓ Status sync: Updated ${updatedCount} rows with latest statuses`
 
 ---
 
+## New Feature: Manual Sync Button
+
+Added a **"Sync Status"** button to the messages screen that allows users to manually trigger a Supabase sync to update message statuses.
+
+### Features
+- **On-demand sync**: Click to immediately fetch latest statuses from Supabase
+- **Visual feedback**: Shows "Syncing...", "✓ Synced (X updated)", or error messages
+- **Smart updates**: Only updates rows that changed status
+- **Error handling**: Gracefully handles missing Supabase or company code
+- **Auto-hide status**: Status message disappears after 3 seconds
+
+### Location
+The button is located in the messages screen (when viewing messages for a specific iFlow), on the right side of the controls bar.
+
+### Usage
+1. Navigate to a specific iFlow's messages
+2. Click the **"Sync Status"** button
+3. Wait for sync to complete (shows count of updated rows)
+4. Green rows indicate messages that were resent by other users
+
+---
+
 ## Testing Checklist
 
 - [ ] Resend a message and verify only that message GUID is synced to Supabase
@@ -107,6 +129,9 @@ console.log(`✓ Status sync: Updated ${updatedCount} rows with latest statuses`
 - [ ] Verify "FOD" status shows for messages with attachments
 - [ ] Test with Supabase unavailable (should fail gracefully)
 - [ ] Verify "Last synced" timestamp updates every 2 minutes
+- [ ] Click "Sync Status" button and verify it updates rows immediately
+- [ ] Test manual sync with no company code (should show error)
+- [ ] Verify manual sync disables checkbox for newly synced resent messages
 
 ---
 
@@ -122,6 +147,35 @@ console.log(`✓ Status sync: Updated ${updatedCount} rows with latest statuses`
 4. `statusSyncTimer` - Fixed message GUID matching and error handling
 
 ### Lines Changed
-- ~150 lines modified across 4 functions
+- ~200 lines modified across 5 functions
+- Added manual sync button with event handler
 - No breaking changes
 - Backward compatible with existing data
+
+---
+
+## UI Changes
+
+### Messages Screen - New Sync Button
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ ← Back to Overview    FlowFixer - iFlowName (25 messages)      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [Select All]  [Resend Selected (0)]              [Sync Status]│
+│                                                    ✓ Synced (3) │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ ☑ | Message GUID        | iFlow | Time  | Payload | Status    │
+│ ☐ | abc123...           | Flow1 | 10:30 | FOD     | FAILED    │
+│ ☐ | def456...           | Flow1 | 10:31 | FOD     | Resent ✓  │ ← Green
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Button States
+- **Default**: "Sync Status" (dark navy background)
+- **Syncing**: "Sync Status" (disabled) + "Syncing..." text
+- **Success**: "Sync Status" (enabled) + "✓ Synced (X updated)" in green
+- **Error**: "Sync Status" (enabled) + "✗ Sync failed" in red
+- **No data**: "Sync Status" (enabled) + "No resent messages found"

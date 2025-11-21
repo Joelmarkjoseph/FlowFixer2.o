@@ -1991,12 +1991,18 @@
       try {
         console.log('Status sync: Fetching updated statuses from Supabase...');
         
+        // Check if supabaseHelper is available
+        if (typeof supabaseHelper === 'undefined') {
+          console.log('Status sync: Supabase helper not loaded, skipping');
+          return;
+        }
+        
         // Get saved company code
         const savedData = await safeStorageGet(['resenderCompanyCode']);
         const companyCode = savedData.resenderCompanyCode;
         
-        if (!companyCode || typeof supabaseHelper === 'undefined') {
-          console.log('Status sync: No company code, skipping');
+        if (!companyCode) {
+          console.log('Status sync: No company code configured, skipping');
           return;
         }
         
@@ -2004,43 +2010,57 @@
         const supabaseGuids = await supabaseHelper.getResentMessageGuids(companyCode);
         console.log(`✓ Status sync: Fetched ${supabaseGuids.length} resent messages from Supabase`);
         
+        if (supabaseGuids.length === 0) {
+          console.log('Status sync: No resent messages found in Supabase');
+          return;
+        }
+        
         // Update the display without full refresh
         // Find all table rows and update their styling based on new statuses
         const resentGuidsSet = new Set(supabaseGuids);
         const tableRows = document.querySelectorAll('.cpi-lite-table tbody tr');
         
+        if (tableRows.length === 0) {
+          console.log('Status sync: No table rows found (might be on overview page)');
+          return;
+        }
+        
+        let updatedCount = 0;
+        
         tableRows.forEach(row => {
-          const messageGuidCell = row.querySelector('td:nth-child(2)');
-          if (messageGuidCell) {
-            const messageGuid = messageGuidCell.textContent.trim();
+          // Get the checkbox which has the full message GUID
+          const checkbox = row.querySelector('.message-checkbox');
+          if (checkbox && checkbox.dataset.messageGuid) {
+            const messageGuid = checkbox.dataset.messageGuid;
             const statusCell = row.querySelector('td:nth-child(6)');
             
             if (resentGuidsSet.has(messageGuid)) {
               // Mark as resent (green)
-              row.style.backgroundColor = '#d4edda';
-              row.style.borderLeft = '4px solid #28a745';
-              if (statusCell) {
-                statusCell.textContent = 'Resent';
-                statusCell.style.color = '#28a745';
-                statusCell.style.fontWeight = '600';
-              }
-            } else {
-              // Keep as failed
-              row.style.backgroundColor = '';
-              row.style.borderLeft = '';
-              if (statusCell && statusCell.textContent === 'Resent') {
-                statusCell.textContent = 'FAILED';
-                statusCell.style.color = '';
-                statusCell.style.fontWeight = '';
+              if (row.style.backgroundColor !== 'rgb(212, 237, 218)') {
+                row.style.backgroundColor = '#d4edda';
+                row.style.borderLeft = '4px solid #28a745';
+                if (statusCell) {
+                  statusCell.textContent = 'Resent';
+                  statusCell.style.color = '#28a745';
+                  statusCell.style.fontWeight = '600';
+                }
+                updatedCount++;
               }
             }
           }
         });
         
-        console.log('✓ Status sync: Updated UI with latest statuses');
+        console.log(`✓ Status sync: Updated ${updatedCount} rows with latest statuses`);
+        
+        // Update the last updated timestamp
+        const lastUpdatedElement = document.getElementById('flowfixer-last-updated');
+        if (lastUpdatedElement) {
+          const now = new Date();
+          lastUpdatedElement.textContent = `Last synced: ${now.toLocaleTimeString()}`;
+        }
         
       } catch (error) {
-        console.error('Status sync failed:', error);
+        console.error('Status sync failed (non-critical):', error.message);
       }
     }, 2 * 60 * 1000); // 2 minutes in milliseconds
   }
@@ -2552,7 +2572,7 @@
   // ============ SUPABASE SYNC FUNCTIONS ============
   
   /**
-   * Sync all messages from past 15 days to Supabase with their statuses
+   * Sync only resent messages from local IndexedDB to Supabase
    */
   async function syncAllLocalToSupabase(companyCode, username) {
     try {
@@ -2561,41 +2581,39 @@
         return;
       }
       
-      console.log('Syncing all messages from past 15 days to Supabase...');
+      console.log('Syncing only resent messages from local IndexedDB to Supabase...');
       
-      // Get saved credentials
-      const savedData = await safeStorageGet(['resenderPassword', 'resenderApiUrl']);
-      const password = savedData.resenderPassword;
-      const apiUrl = savedData.resenderApiUrl;
-      
-      if (!password) {
-        console.log('No password available for fetching messages');
-        return;
-      }
-      
-      // Fetch all failed messages from past 15 days
-      const messagesData = await fetchMessageProcessingLogs(username, password, apiUrl, 15);
-      const allMessages = messagesData.allMessages || [];
-      
-      console.log(`Fetched ${allMessages.length} messages from past 15 days`);
-      
-      if (allMessages.length === 0) {
-        console.log('No messages to sync');
-        return;
-      }
-      
-      // Get local resent history to determine status
+      // Get local resent history (only resent messages)
       const localResentGuids = await flowFixerDB.getAllResentMessageGuids();
-      const resentGuidsSet = new Set(localResentGuids);
       
-      // Convert all messages to Supabase format with correct status
-      const messages = allMessages.map(msg => ({
+      if (localResentGuids.length === 0) {
+        console.log('No resent messages to sync');
+        return;
+      }
+      
+      console.log(`Found ${localResentGuids.length} resent messages in local IndexedDB`);
+      
+      // Get all iFlow names from IndexedDB to map message GUIDs to iFlow names
+      const allIflowNames = await flowFixerDB.getAllIflowNames();
+      const guidToIflowMap = {};
+      
+      for (const iflowName of allIflowNames) {
+        const payloads = await flowFixerDB.getPayloads(iflowName);
+        payloads.forEach(payload => {
+          if (payload.resentSuccessfully) {
+            guidToIflowMap[payload.messageGuid] = iflowName;
+          }
+        });
+      }
+      
+      // Convert only resent messages to Supabase format
+      const messages = localResentGuids.map(guid => ({
         companyCode: companyCode,
-        messageGuid: msg.MessageGuid,
-        iflowName: msg.IntegrationFlowName,
-        status: resentGuidsSet.has(msg.MessageGuid) ? 'Resent' : 'Failed',
-        resentAt: resentGuidsSet.has(msg.MessageGuid) ? new Date().toISOString() : null,
-        resentBy: resentGuidsSet.has(msg.MessageGuid) ? username : null
+        messageGuid: guid,
+        iflowName: guidToIflowMap[guid] || 'Unknown',
+        status: 'Resent',
+        resentAt: new Date().toISOString(),
+        resentBy: username || companyCode
       }));
       
       // Sync to Supabase in batches (to avoid overwhelming the API)
@@ -2603,10 +2621,10 @@
       for (let i = 0; i < messages.length; i += batchSize) {
         const batch = messages.slice(i, i + batchSize);
         await supabaseHelper.upsertMultipleResentMessages(batch);
-        console.log(`✓ Synced batch ${Math.floor(i / batchSize) + 1} (${batch.length} messages)`);
+        console.log(`✓ Synced batch ${Math.floor(i / batchSize) + 1} (${batch.length} resent messages)`);
       }
       
-      console.log(`✓ Synced ${messages.length} messages from past 15 days to Supabase`);
+      console.log(`✓ Synced ${messages.length} resent messages to Supabase`);
       
     } catch (error) {
       console.error('Failed to sync to Supabase:', error);
@@ -2659,13 +2677,14 @@
       
       console.log(`✓ Marked ${messageGuids.length} messages as resent in IndexedDB and added to permanent history`);
       
-      // Sync to Supabase
+      // Sync to Supabase - ONLY insert the newly resent message GUIDs
       try {
         const savedData = await safeStorageGet(['resenderCompanyCode', 'resenderUsername']);
         const companyCode = savedData.resenderCompanyCode;
         const username = savedData.resenderUsername;
         
         if (companyCode && typeof supabaseHelper !== 'undefined') {
+          // Only sync the newly resent messages (not all messages)
           const messages = messageGuids.map(guid => ({
             companyCode: companyCode,
             messageGuid: guid,
@@ -2676,7 +2695,7 @@
           }));
           
           await supabaseHelper.upsertMultipleResentMessages(messages);
-          console.log(`✓ Synced ${messageGuids.length} messages to Supabase`);
+          console.log(`✓ Synced only ${messageGuids.length} newly resent messages to Supabase`);
         } else {
           console.log('Supabase sync skipped: No company code or Supabase helper not available');
         }
